@@ -1,0 +1,2390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plataforma de revisión de trabajos académicos CUNOC-USAC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=PT+Sans:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#152238;
+    --paper:#f4f7fb;
+    --panel:#e9eff7;
+    --line:#cfdaeb;
+    --accent:#1c4a86;        /* USAC-style institutional blue — audio comments */
+    --accent-soft:#dbe7f6;
+    --accent-2:#2f7a8c;      /* teal-blue — text comments */
+    --accent-2-soft:#dcedf1;
+    --muted:#5c6c85;
+    --highlight-audio: rgba(28,74,134,0.20);
+    --highlight-text: rgba(47,122,140,0.20);
+    --accent-3:#b3790f;      /* gold — spelling/writing quick marks (blue+gold = institutional) */
+    --accent-3-soft:#f7ecd2;
+    --highlight-quick: rgba(179,121,15,0.26);
+    --accent-4:#7c3aed;      /* violet — suspected AI content */
+    --accent-4-soft:#ece3fb;
+    --highlight-ai: rgba(124,58,237,0.18);
+    --shadow: 0 8px 24px rgba(21,34,56,0.12);
+    --radius: 10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:'PT Sans',sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background: #cfe0f7; }
+
+  /* ---------- layout ---------- */
+  #app{ display:flex; flex-direction:column; height:100vh; }
+
+  header{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:10px 20px;
+    border-bottom:1px solid var(--line);
+    background:#fff;
+    z-index:40;
+  }
+  .logo-slot{
+    width:42px; height:42px; border-radius:50%; flex:none; cursor:pointer; position:relative;
+    border:1.5px solid var(--line); overflow:hidden; background:#fff;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .logo-slot img{ width:100%; height:100%; object-fit:cover; }
+  .logo-slot .edit-hint{
+    position:absolute; inset:0; background:rgba(21,34,56,.55); color:#fff; font-size:8px; text-align:center;
+    display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .15s; line-height:1.2; padding:2px;
+  }
+  .logo-slot:hover .edit-hint{ opacity:1; }
+  #logoInput{ display:none; }
+
+  .brand{
+    display:flex; flex-direction:column; line-height:1.2; margin-right:auto; max-width:340px;
+  }
+  .brand .eyebrow{ font-size:9px; color:var(--accent); letter-spacing:.4px; text-transform:uppercase; font-weight:700; }
+  .brand .mark{
+    font-family:'Merriweather', serif; font-weight:700; font-size:15.5px; letter-spacing:.1px; color:var(--ink); line-height:1.25;
+  }
+  .brand .sub{ font-size:10.5px; color:var(--muted); letter-spacing:.2px; margin-top:2px;}
+
+  .btn{
+    font-family:'PT Sans',sans-serif; font-size:13px; font-weight:700;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:9px 14px; border-radius:8px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:7px;
+    transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  }
+  .btn:hover{ border-color:#bdb6a3; box-shadow:var(--shadow); transform:translateY(-1px); }
+  .btn:active{ transform:translateY(0); }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary:hover{ box-shadow:0 8px 20px rgba(154,43,31,.28); }
+  .btn.ghost{ background:transparent; border-color:transparent; color:var(--muted); }
+  .btn.ghost:hover{ border-color:var(--line); box-shadow:none; }
+  .btn[disabled]{ opacity:.45; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+  .btn svg{ width:15px; height:15px; flex:none; }
+
+  #fileInput{ display:none; }
+
+  .save-status{ font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:6px; min-width:120px; }
+  .save-status .dot{ width:6px; height:6px; border-radius:50%; background:#9a9484; }
+  .save-status.saved .dot{ background:var(--accent-2); }
+  .save-status.saving .dot{ background:var(--accent-3); animation:pulse 1s infinite; }
+  @keyframes pulse{ 50%{opacity:.3;} }
+
+  main{ flex:1; display:flex; min-height:0; }
+
+  /* ---------- empty state ---------- */
+  #emptyState{
+    flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:18px;
+    padding:40px; text-align:center;
+  }
+  #emptyState .glyph{
+    width:64px; height:64px; border:1.5px solid var(--line); border-radius:50%;
+    display:flex; align-items:center; justify-content:center; color:var(--accent);
+  }
+  #emptyState h1{ font-family:'Merriweather',serif; font-size:26px; font-weight:600; margin:0; max-width:480px;}
+  #emptyState p{ color:var(--muted); font-size:14px; max-width:420px; margin:0; line-height:1.6;}
+  .drop-zone{
+    margin-top:8px; border:1.5px dashed var(--line); border-radius:14px; padding:34px 48px;
+    cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .drop-zone:hover, .drop-zone.drag{ border-color:var(--accent); background:var(--accent-soft); }
+
+  /* ---------- saved documents rail ---------- */
+  #savedDocs{ margin-top:26px; max-width:520px; width:100%; text-align:left; }
+  #savedDocs h3{ font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin:0 0 8px; }
+  .saved-doc-item{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; margin-bottom:6px; font-size:13px;
+  }
+  .saved-doc-item .name{ font-weight:600; }
+  .saved-doc-item .meta{ color:var(--muted); font-size:11.5px; }
+
+  /* ---------- viewer ---------- */
+  #viewerWrap{ flex:1; overflow-y:auto; display:flex; justify-content:center; padding:32px 24px 120px; }
+  #viewer{ width:100%; max-width:840px; }
+
+  .page-container{
+    position:relative; margin:0 auto 22px; background:#fff; box-shadow:var(--shadow);
+    border-radius:2px; overflow:hidden;
+  }
+  .page-container canvas{ display:block; width:100%; height:auto; }
+  .textLayer{
+    position:absolute; inset:0; overflow:hidden; line-height:1;
+    opacity:1; mix-blend-mode:normal; transform-origin:0 0; text-align:initial;
+  }
+  .textLayer span, .textLayer br{
+    position:absolute; white-space:pre; color:transparent; cursor:text; transform-origin:0% 0%;
+  }
+  .textLayer ::selection{ background:rgba(28,74,134,0.35); }
+
+  #docxContent{
+    background:#fff; box-shadow:var(--shadow); border-radius:2px; padding:56px 64px;
+    font-family:'Merriweather', serif; font-size:15.5px; line-height:1.75; color:#232323;
+  }
+  #docxContent p{ margin:0 0 14px; }
+  #docxContent h1,#docxContent h2,#docxContent h3{ font-family:'Merriweather',serif; }
+  #docxContent table{ border-collapse:collapse; margin:14px 0; }
+  #docxContent td, #docxContent th{ border:1px solid #ccc; padding:6px 10px; font-size:13.5px; }
+  #docxContent img{ max-width:100%; }
+
+  mark.annot-mark, .hl-rect{
+    cursor:pointer; border-radius:2px; position:relative;
+    transition:filter .12s ease;
+  }
+  mark.annot-mark:hover, .hl-rect:hover{ filter:brightness(0.94); }
+  mark.annot-mark.type-audio, .hl-rect.type-audio{ background:var(--highlight-audio); border-bottom:2px dashed var(--accent); }
+  mark.annot-mark.type-text, .hl-rect.type-text{ background:var(--highlight-text); border-bottom:2px dashed var(--accent-2); }
+  mark.annot-mark.type-quick, .hl-rect.type-quick{ background:var(--highlight-quick); border-bottom:2px dashed var(--accent-3); }
+  mark.annot-mark.type-ai, .hl-rect.type-ai{ background:var(--highlight-ai); border-bottom:2px dashed var(--accent-4); }
+
+  .hl-rect{ position:absolute; pointer-events:auto; }
+
+  .badge{
+    position:absolute; top:-9px; left:-9px; width:17px; height:17px; border-radius:50%;
+    font-size:9.5px; font-weight:700; display:flex; align-items:center; justify-content:center; color:#fff;
+    font-family:'JetBrains Mono',monospace; pointer-events:none; box-shadow:0 1px 3px rgba(21,34,56,.35); z-index:6;
+  }
+  .badge.type-audio{ background:var(--accent); }
+  .badge.type-text{ background:var(--accent-2); }
+  .badge.type-quick{ background:var(--accent-3); }
+  .badge.type-ai{ background:var(--accent-4); }
+
+  /* ---------- selection toolbar ---------- */
+  #selToolbar{
+    position:absolute; display:none; z-index:60; background:var(--ink); color:#fff;
+    border-radius:9px; padding:6px; box-shadow:0 10px 30px rgba(0,0,0,.28); gap:4px; align-items:center;
+  }
+  #selToolbar button{
+    display:flex; align-items:center; gap:6px; background:transparent; border:none; color:#fff;
+    font-family:'PT Sans',sans-serif; font-size:12.5px; font-weight:600; padding:7px 10px; border-radius:6px; cursor:pointer;
+  }
+  #selToolbar button:hover{ background:rgba(255,255,255,.14); }
+  #selToolbar button svg{ width:14px; height:14px; }
+  #selToolbar button.quick-btn{ color:#ffd48a; }
+  #selToolbar button.quick-btn:hover{ background:rgba(255,212,138,.16); }
+  #selToolbar button.ai-btn{ color:#c4a3ff; }
+  #selToolbar button.ai-btn:hover{ background:rgba(196,163,255,.16); }
+  #selToolbar .divider{ width:1px; height:18px; background:rgba(255,255,255,.2); margin:0 2px; }
+
+  /* ---------- sidebar ---------- */
+  #sidebar{
+    width:320px; flex:none; border-left:1px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .sidebar-section{ padding:16px 18px; border-bottom:1px solid var(--line); }
+  .sidebar-section h3{
+    font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin:0 0 10px; font-weight:700;
+  }
+  #generalComment{
+    width:100%; min-height:70px; resize:vertical; border:1px solid var(--line); border-radius:7px; padding:9px 10px;
+    font-family:'PT Sans',sans-serif; font-size:12.5px; line-height:1.55; background:#fff;
+  }
+  #generalComment:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+
+  #annotList{ flex:1; overflow-y:auto; padding:10px 12px 100px; }
+  .annot-item{
+    background:#fff; border:1px solid var(--line); border-radius:9px; padding:10px 11px; margin-bottom:9px; cursor:pointer;
+    transition:border-color .12s;
+  }
+  .annot-item:hover{ border-color:#bdb6a3; }
+  .annot-item .row1{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+  .annot-item .num-badge{
+    width:18px; height:18px; border-radius:50%; flex:none; color:#fff; font-size:10px; font-weight:700;
+    font-family:'JetBrains Mono',monospace; display:flex; align-items:center; justify-content:center;
+  }
+  .annot-item .num-badge.type-audio{ background:var(--accent); }
+  .annot-item .num-badge.type-text{ background:var(--accent-2); }
+  .annot-item .num-badge.type-quick{ background:var(--accent-3); }
+  .annot-item .num-badge.type-ai{ background:var(--accent-4); }
+  .annot-item .icon{ width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:none; color:#fff; }
+  .annot-item .icon svg{ width:11px; height:11px; }
+  .annot-item .icon.type-audio{ background:var(--accent); }
+  .annot-item .icon.type-text{ background:var(--accent-2); }
+  .annot-item .icon.type-quick{ background:var(--accent-3); }
+  .annot-item .icon.type-ai{ background:var(--accent-4); }
+  .annot-item .cat{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--muted); }
+  .annot-item .loc{ margin-left:auto; font-size:10.5px; color:var(--muted); font-family:'JetBrains Mono',monospace; }
+  .annot-item .snippet{ font-size:12px; color:#555; font-style:italic; line-height:1.4; margin-bottom:6px;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .annot-item audio{ width:100%; height:32px; }
+  .annot-item .txt{ font-size:12.5px; line-height:1.5; color:var(--ink); white-space:pre-wrap; }
+  .annot-item .del{ font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; margin-top:6px; padding:0; }
+  .annot-item .del:hover{ color:var(--accent); text-decoration:underline; }
+  #annotEmpty{ color:var(--muted); font-size:12.5px; padding:16px 6px; line-height:1.6; }
+
+  /* ---------- popover on doc ---------- */
+  .popover{
+    position:absolute; z-index:55; background:#fff; border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 14px 34px rgba(0,0,0,.18); width:280px; padding:12px 13px; display:none;
+  }
+  .popover .ph{ display:flex; align-items:center; gap:7px; margin-bottom:8px; }
+  .popover .cat-pill{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; padding:2px 7px; border-radius:20px; }
+  .popover .cat-pill.type-audio{ background:var(--accent-soft); color:var(--accent); }
+  .popover .cat-pill.type-text{ background:var(--accent-2-soft); color:var(--accent-2); }
+  .popover .cat-pill.type-quick{ background:var(--accent-3-soft); color:var(--accent-3); }
+  .popover .cat-pill.type-ai{ background:var(--accent-4-soft); color:var(--accent-4); }
+  .popover textarea.quick-note{
+    width:100%; min-height:56px; border:1px solid var(--line); border-radius:7px; padding:7px 8px;
+    font-family:'PT Sans',sans-serif; font-size:12.5px; resize:vertical;
+  }
+  .popover textarea.quick-note:focus{ outline:2px solid var(--accent-3); outline-offset:1px; }
+  .popover select{
+    width:100%; border:1px solid var(--line); border-radius:7px; padding:7px 8px; background:#fff;
+    font-family:'PT Sans',sans-serif; font-size:12.5px; color:var(--ink);
+  }
+  .popover select:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+  .popover .close{ margin-left:auto; background:none; border:none; cursor:pointer; color:var(--muted); font-size:15px; line-height:1; }
+  .popover audio{ width:100%; height:34px; }
+  .popover .txt{ font-size:13px; line-height:1.55; white-space:pre-wrap; }
+  .popover .foot{ margin-top:8px; display:flex; justify-content:space-between; align-items:center; }
+  .popover .foot .del{ font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; }
+  .popover .foot .del:hover{ color:var(--accent); }
+  .popover .foot .ts{ font-size:10.5px; color:var(--muted); }
+
+  /* ---------- modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(28,29,33,.44); z-index:100; display:none;
+    align-items:center; justify-content:center;
+  }
+  .modal{
+    background:#fff; border-radius:14px; width:420px; max-width:92vw; padding:22px 24px; box-shadow:0 24px 60px rgba(0,0,0,.3);
+  }
+  .modal h2{ font-family:'Merriweather',serif; font-size:19px; margin:0 0 4px; }
+  .modal .quote{ font-size:12.5px; color:var(--muted); font-style:italic; margin:0 0 16px; line-height:1.5;
+    border-left:2px solid var(--line); padding-left:10px; max-height:70px; overflow:hidden; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--muted); margin-bottom:6px; }
+  .field select, .field textarea{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-family:'PT Sans',sans-serif; font-size:13.5px;
+  }
+  .field textarea{ min-height:110px; resize:vertical; }
+  .field select:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+
+  .rec-box{
+    display:flex; flex-direction:column; align-items:center; gap:14px; padding:22px 10px 8px;
+  }
+  .rec-btn{
+    width:64px; height:64px; border-radius:50%; border:none; cursor:pointer; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 8px 20px rgba(154,43,31,.3);
+    transition:transform .12s;
+  }
+  .rec-btn:hover{ transform:scale(1.05); }
+  .rec-btn.recording{ animation:recPulse 1.4s infinite; }
+  @keyframes recPulse{ 0%{box-shadow:0 0 0 0 rgba(154,43,31,.4);} 70%{box-shadow:0 0 0 16px rgba(154,43,31,0);} 100%{box-shadow:0 0 0 0 rgba(154,43,31,0);} }
+  .rec-btn svg{ width:24px; height:24px; }
+  .rec-time{ font-family:'JetBrains Mono',monospace; font-size:20px; letter-spacing:1px; color:var(--ink); }
+  .rec-hint{ font-size:12px; color:var(--muted); }
+  .rec-preview audio{ width:100%; margin-top:4px; }
+
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+  .cat-swatch{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+
+  .drive-hint{ font-size:12px; color:var(--muted); line-height:1.6; background:var(--panel); border-radius:8px; padding:10px 12px; margin-bottom:14px; }
+  .drive-hint a{ color:var(--accent); }
+  .drive-hint ol{ margin:6px 0 0; padding-left:18px; }
+  .drive-status{ display:flex; align-items:center; gap:8px; font-size:12.5px; margin-top:4px; padding:8px 10px; border-radius:8px; background:var(--accent-2-soft); color:var(--accent-2); }
+  .drive-status.signed-out{ background:var(--panel); color:var(--muted); }
+  .field input[type="text"]{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-family:'JetBrains Mono',monospace; font-size:12.5px;
+  }
+  .field input[type="text"]:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+
+  /* toast */
+  #toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0;
+    background:var(--ink); color:#fff; font-size:13px; padding:10px 18px; border-radius:8px; z-index:200;
+    transition:opacity .2s, transform .2s; pointer-events:none; box-shadow:0 10px 26px rgba(0,0,0,.25);
+  }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* connector line — links an active comment to its highlighted text */
+  #connectorSvg{
+    position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:65; display:none;
+  }
+  #connectorLine{
+    stroke-width:2; stroke-dasharray:5 5; stroke-linecap:round; transition:opacity .15s ease;
+  }
+
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb{ background:#d7d1c2; border-radius:6px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+
+  @media (max-width:840px){
+    #sidebar{ width:260px; }
+    #docxContent{ padding:32px 24px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="logo-slot" id="logoSlot" title="Haga clic para subir el escudo/logo de su institución">
+      <svg id="logoDefault" viewBox="0 0 48 48" width="100%" height="100%">
+        <circle cx="24" cy="24" r="22" fill="#f4f7fb" stroke="#1c4a86" stroke-width="1.6"/>
+        <circle cx="24" cy="24" r="17.5" fill="none" stroke="#b3790f" stroke-width="1"/>
+        <path d="M14 20l10-5 10 5-10 5-10-5z" fill="#1c4a86"/>
+        <path d="M14 20v6c0 2 4 4.5 10 4.5s10-2.5 10-4.5v-6" fill="none" stroke="#1c4a86" stroke-width="1.4"/>
+        <line x1="34" y1="20" x2="34" y2="27" stroke="#b3790f" stroke-width="1.4"/>
+      </svg>
+      <img id="logoImg" style="display:none;" alt="Logo institucional">
+      <div class="edit-hint">Subir<br>logo</div>
+    </div>
+    <input type="file" id="logoInput" accept="image/*">
+    <div class="brand">
+      <span class="eyebrow">Universidad de San Carlos de Guatemala – Centro Universitario de Occidente</span>
+      <span class="mark">Plataforma de revisión de trabajos académicos CUNOC-USAC</span>
+      <span class="sub" id="reviewerSub">Revisor: M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo</span>
+    </div>
+    <span class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText">Sin documento</span></span>
+    <button class="btn ghost" id="btnNewDoc" style="display:none;">Nuevo documento</button>
+    <button class="btn ghost" id="btnReviewer" disabled title="Cambiar el nombre del revisor que aparece en el documento final">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/></svg>
+      Revisor
+    </button>
+    <button class="btn" id="btnSave" disabled title="Guardar cambios manualmente">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4M8 14h8v6H8z"/></svg>
+      Guardar
+    </button>
+    <button class="btn" id="btnUpload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M12 4l-5 5M12 4l5 5"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+      Subir trabajo
+    </button>
+    <button class="btn" id="btnOpenDrive" title="Abrir un trabajo directamente desde Google Drive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
+      Abrir desde Drive
+    </button>
+    <button class="btn primary" id="btnExport" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+      Exportar
+    </button>
+    <button class="btn" id="btnEmail" disabled title="Enviar la revisión por correo electrónico">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+      Enviar por correo
+    </button>
+    <button class="btn" id="btnDrive" disabled title="Guardar la revisión exportada en una carpeta de Google Drive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
+      Guardar en Drive
+    </button>
+    <button class="btn ghost" id="btnDriveSettings" title="Configurar conexión con Google (Drive y correo)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.2a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.2a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.2a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.2a1.7 1.7 0 00-1.6 1z"/></svg>
+    </button>
+    <input type="file" id="fileInput" accept=".pdf,.docx">
+  </header>
+
+  <main>
+    <div id="emptyState">
+      <div class="glyph">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+      </div>
+      <h1>Suba el trabajo que va a revisar</h1>
+      <p>Acepta PDF y Word (.docx). Seleccione cualquier fragmento de texto para dejar un comentario en audio o por escrito, tal como lo haría al resaltar en Google Classroom — pero ahora con su voz.</p>
+      <div class="drop-zone" id="dropZone">
+        <strong>Haga clic para elegir un archivo</strong><br>
+        <span style="color:var(--muted); font-size:12.5px;">o arrástrelo aquí · PDF o DOCX</span>
+      </div>
+      <div id="savedDocs" style="display:none;">
+        <h3 style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <span>Revisiones guardadas en este navegador</span>
+          <button class="btn ghost" id="btnClearHistory" style="padding:5px 10px; font-size:11px; text-transform:none; letter-spacing:normal; font-weight:600;">Borrar historial</button>
+        </h3>
+        <div id="savedDocsList"></div>
+      </div>
+    </div>
+
+    <div id="viewerWrap" style="display:none;">
+      <div id="viewer"></div>
+    </div>
+
+    <div id="sidebar" style="display:none;">
+      <div class="sidebar-section">
+        <h3>Comentario general</h3>
+        <textarea id="generalComment" placeholder="Impresión general del trabajo, recomendación final, próximos pasos…"></textarea>
+      </div>
+      <div class="sidebar-section" style="border-bottom:none; padding-bottom:10px;">
+        <h3 id="annotCount">Comentarios (0)</h3>
+      </div>
+      <div id="annotList"><div id="annotEmpty">Seleccione texto en el documento para dejar su primer comentario.</div></div>
+    </div>
+  </main>
+</div>
+
+<div id="selToolbar">
+  <button id="tbAudio">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 18v3"/></svg>
+    Audio
+  </button>
+  <div class="divider"></div>
+  <button id="tbText">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 00-3-3L5 17v3z"/></svg>
+    Texto
+  </button>
+  <div class="divider"></div>
+  <button id="tbQuick" class="quick-btn" title="Resaltar como error de ortografía/redacción, sin abrir un comentario">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 11-14h-7z"/></svg>
+    Ortografía
+  </button>
+  <div class="divider"></div>
+  <button id="tbAi" class="ai-btn" title="Marcar como posible contenido generado por IA, sin abrir un comentario">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/></svg>
+    Contenido IA
+  </button>
+</div>
+
+<div class="popover" id="popover"></div>
+
+<svg id="connectorSvg">
+  <line id="connectorLine" x1="0" y1="0" x2="0" y2="0"/>
+</svg>
+
+<!-- Recording modal -->
+<div class="modal-backdrop" id="audioModalBackdrop">
+  <div class="modal">
+    <h2>Comentario en audio</h2>
+    <p class="quote" id="audioQuote"></p>
+    <div class="rec-box">
+      <button class="rec-btn" id="recBtn">
+        <svg id="recIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 18v3"/></svg>
+      </button>
+      <div class="rec-time" id="recTime">00:00</div>
+      <div class="rec-hint" id="recHint">Grabando… presione para detener</div>
+      <div class="rec-preview" id="recPreview" style="display:none; width:100%;"></div>
+    </div>
+    <p style="font-size:11px;color:var(--muted);text-align:center;margin:2px 0 0;">Podrá asignarle una categoría después, al hacer clic sobre el comentario · Ctrl+Enter detiene la grabación y guarda</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="audioCancel">Cancelar</button>
+      <button class="btn primary" id="audioSave" disabled>Guardar comentario</button>
+    </div>
+  </div>
+</div>
+
+<!-- Text comment modal -->
+<div class="modal-backdrop" id="textModalBackdrop">
+  <div class="modal">
+    <h2>Comentario escrito</h2>
+    <p class="quote" id="textQuote"></p>
+    <div class="field" style="margin-bottom:6px;">
+      <label>Comentario</label>
+      <textarea id="textBody" placeholder="Escriba su observación para el estudiante…" autofocus></textarea>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin:0 0 4px;">Podrá asignarle una categoría después, al hacer clic sobre el comentario · Ctrl+Enter para guardar</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="textCancel">Cancelar</button>
+      <button class="btn primary" id="textSave">Guardar comentario</button>
+    </div>
+  </div>
+</div>
+
+<!-- Google connection settings modal (covers Drive + Gmail, same credentials) -->
+<div class="modal-backdrop" id="driveModalBackdrop">
+  <div class="modal">
+    <h2>Conectar con Google</h2>
+    <div class="drive-hint">
+      Para guardar en Drive y enviar por correo desde su propia cuenta, necesita un <strong>ID de cliente OAuth</strong> gratuito de Google (una sola vez, suyo, no se comparte con nadie):
+      <ol>
+        <li>Entre a <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">console.cloud.google.com/apis/credentials</a></li>
+        <li>Cree un proyecto → "Crear credenciales" → "ID de cliente de OAuth" → tipo "Aplicación web"</li>
+        <li>En "Orígenes autorizados de JavaScript" agrega la URL desde la que abres esta app</li>
+        <li>Habilite la <strong>Google Drive API</strong> y la <strong>Gmail API</strong>, y copie también una "Clave de API" (API key)</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>ID de cliente OAuth (Client ID)</label>
+      <input type="text" id="driveClientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+    </div>
+    <div class="field" style="margin-bottom:8px;">
+      <label>Clave de API (API key)</label>
+      <input type="text" id="driveApiKey" placeholder="AIza…">
+    </div>
+    <div class="drive-status signed-out" id="driveStatus">Aún no se ha conectado ninguna cuenta.</div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="driveModalClose">Cerrar</button>
+      <button class="btn primary" id="driveModalSave">Guardar configuración</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send-by-email modal -->
+<div class="modal-backdrop" id="emailModalBackdrop">
+  <div class="modal">
+    <h2>Enviar revisión por correo</h2>
+    <p class="quote" style="margin-bottom:12px;">Se enviará desde su propia cuenta de Google, con el archivo de revisión adjunto.</p>
+    <div class="field">
+      <label>Correo del estudiante</label>
+      <input type="text" id="emailTo" placeholder="estudiante@correo.com (separa varios con coma)">
+    </div>
+    <div class="field">
+      <label>Asunto</label>
+      <input type="text" id="emailSubject">
+    </div>
+    <div class="field" style="margin-bottom:0;">
+      <label>Mensaje</label>
+      <textarea id="emailBody"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="emailCancel">Cancelar</button>
+      <button class="btn primary" id="emailSend">Enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reviewer name modal -->
+<div class="modal-backdrop" id="reviewerModalBackdrop">
+  <div class="modal">
+    <h2>Nombre del revisor</h2>
+    <p class="quote" style="margin-bottom:12px;">Este es el nombre que aparecerá como "Revisado por" en el documento final. Déjelo vacío para usar siempre el revisor predeterminado.</p>
+    <div class="field" style="margin-bottom:6px;">
+      <label>Nombre (opcional)</label>
+      <input type="text" id="reviewerNameInput" placeholder="Ej. Licda. Fulana de Tal">
+    </div>
+    <p style="font-size:11.5px;color:var(--muted);margin:0;">Predeterminado: M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="reviewerCancel">Cancelar</button>
+      <button class="btn primary" id="reviewerSave">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------------- categories (rubric-style tags for academic feedback) ---------------- */
+/* Category is now assigned AFTER a comment is created (via its popover), not before,
+   so audio/text comments start out uncategorized and can be tagged later without slowing down review. */
+const CATEGORIES = [
+  { id:'redaccion',   label:'Redacción y estilo', color:'#1c4a86' },
+  { id:'metodologia', label:'Metodología',        color:'#2f7a8c' },
+  { id:'contenido',   label:'Contenido / rigor',  color:'#3a4d8f' },
+  { id:'formato',     label:'Formato / normas APA', color:'#8a6d1f' },
+  { id:'citas',       label:'Citas y referencias', color:'#6b3f8f' },
+  { id:'otro',        label:'Otro',               color:'#555049' },
+];
+const NONE_CAT = { id:'', label:'Sin categoría', color:'#8b95a8' };
+function catInfo(id){ if(!id) return NONE_CAT; return CATEGORIES.find(c=>c.id===id) || NONE_CAT; }
+const QUICK_CAT = { id:'ortografia_rapida', label:'Ortografía / redacción', color:'#b3790f' };
+const AI_CAT = { id:'contenido_ia', label:'Contenido IA', color:'#7c3aed' };
+
+
+/* ---------------- state ---------------- */
+let state = {
+  docType: null,      // 'pdf' | 'docx'
+  fileName: null,
+  docHash: null,
+  pdfDoc: null,
+  pageScales: [],      // render scale used per page (for rect math)
+  annotations: [],      // {id, type, category, content, createdAt, page, rects} (pdf) or {id, type, category, content, createdAt} (docx; location lives in DOM mark)
+  pendingSelection: null, // {text, page, rects} or {text, range} for docx
+  reviewerName: '',    // per-document override; empty = use DEFAULT_REVIEWER
+};
+
+const $ = sel => document.querySelector(sel);
+const el = (tag, cls) => { const e = document.createElement(tag); if(cls) e.className = cls; return e; };
+
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function setSaveStatus(mode, text){
+  const s = $('#saveStatus'); s.className = 'save-status ' + (mode||'');
+  $('#saveStatusText').textContent = text;
+}
+
+/* build a category <select> with a leading "Sin categoría" option — used in the popover,
+   after a comment already exists, per the professor's request to tag comments after the fact */
+function fillCategorySelect(sel, selectedId){
+  sel.innerHTML = '';
+  const none = el('option'); none.value=''; none.textContent='Sin categoría'; sel.appendChild(none);
+  CATEGORIES.forEach(c=>{
+    const o = el('option'); o.value = c.id; o.textContent = c.label; sel.appendChild(o);
+  });
+  sel.value = selectedId || '';
+}
+
+/* ---------------- storage layer, with automatic fallback ----------------
+   Inside Claude's chat preview, window.storage is available and used.
+   Opened as a standalone downloaded file (needed for microphone access),
+   window.storage does not exist, so we fall back to IndexedDB — same
+   interface, fully local to the browser, works offline, no size limits
+   that would trip up longer audio comments. */
+const HAS_CLAUDE_STORAGE = (typeof window.storage !== 'undefined') && window.storage && typeof window.storage.set === 'function';
+
+const IDB_NAME = 'retroalimentaUsacDB', IDB_STORE = 'kv';
+let _idbPromise = null;
+function idbOpen(){
+  if(_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject)=>{
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = ()=>{ req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+  return _idbPromise;
+}
+async function idbSet(key, value){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(IDB_STORE,'readwrite'); tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = ()=>resolve(true); tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(IDB_STORE,'readonly'); const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = ()=>resolve(req.result===undefined?null:req.result); req.onerror = ()=>reject(req.error);
+  });
+}
+async function idbDelete(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(IDB_STORE,'readwrite'); tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = ()=>resolve(true); tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function idbListKeys(prefix){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(IDB_STORE,'readonly'); const req = tx.objectStore(IDB_STORE).getAllKeys();
+    req.onsuccess = ()=>resolve((req.result||[]).map(String).filter(k=> !prefix || k.startsWith(prefix)));
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+/* ---------------- storage helpers ---------------- */
+async function storageSet(key, value){
+  try{
+    if(HAS_CLAUDE_STORAGE){ await window.storage.set(key, JSON.stringify(value), false); }
+    else{ await idbSet(key, value); }
+    return true;
+  }
+  catch(e){ console.error('storage.set failed', key, e); return false; }
+}
+async function storageGet(key){
+  try{
+    if(HAS_CLAUDE_STORAGE){ const r = await window.storage.get(key, false); return r ? JSON.parse(r.value) : null; }
+    const v = await idbGet(key); return v===undefined ? null : v;
+  }
+  catch(e){ return null; }
+}
+async function storageDelete(key){
+  try{ if(HAS_CLAUDE_STORAGE) await window.storage.delete(key, false); else await idbDelete(key); }catch(e){}
+}
+async function storageList(prefix){
+  try{
+    if(HAS_CLAUDE_STORAGE){ const r = await window.storage.list(prefix, false); return r ? r.keys : []; }
+    return await idbListKeys(prefix);
+  }
+  catch(e){ return []; }
+}
+
+function hashFile(file){
+  // lightweight, deterministic id from name+size+lastModified
+  const raw = `${file.name}::${file.size}::${file.lastModified}`;
+  let h = 0;
+  for(let i=0;i<raw.length;i++){ h = (h*31 + raw.charCodeAt(i)) | 0; }
+  return 'd' + Math.abs(h);
+}
+
+async function saveMeta(){
+  setSaveStatus('saving','Guardando…');
+  const meta = {
+    fileName: state.fileName,
+    docType: state.docType,
+    generalComment: $('#generalComment').value,
+    reviewerName: state.reviewerName || '',
+    annotationIds: state.annotations.map(a=>a.id),
+    contentHTML: state.docType === 'docx' ? $('#docxContent').innerHTML : undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  const ok = await storageSet(`revdoc:${state.docHash}:meta`, meta);
+  await updateIndex();
+  setSaveStatus(ok?'saved':'', ok?'Guardado':'No se pudo guardar');
+}
+async function updateIndex(){
+  const idx = await storageGet('revdoc:index') || {};
+  idx[state.docHash] = {
+    fileName: state.fileName,
+    docType: state.docType,
+    count: state.annotations.length,
+    updatedAt: new Date().toISOString(),
+  };
+  await storageSet('revdoc:index', idx);
+}
+async function saveAnnotationToStorage(a){
+  await storageSet(`revdoc:${state.docHash}:annot:${a.id}`, a);
+}
+async function deleteAnnotationFromStorage(id){
+  await storageDelete(`revdoc:${state.docHash}:annot:${id}`);
+}
+
+let saveMetaTimer;
+function scheduleSaveMeta(){ clearTimeout(saveMetaTimer); saveMetaTimer = setTimeout(saveMeta, 500); }
+
+/* ---------------- resilient autosave: flush pending saves before the tab closes/hides ----------------
+   Every comment already saves itself the instant you create/edit/delete it. This is an extra
+   safety net for the debounced general-comment field, so nothing is lost if you close the
+   tab or browser right after typing. */
+function flushPendingSaves(){
+  if(saveMetaTimer && state.docHash){ clearTimeout(saveMetaTimer); saveMetaTimer = null; saveMeta(); }
+}
+window.addEventListener('beforeunload', flushPendingSaves);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') flushPendingSaves(); });
+
+/* ---------------- institutional logo ----------------
+   Ships with the official USAC seal you provided, embedded directly so it always shows up
+   with no setup. Click the circle any time to swap in a different image (e.g. your unit's
+   own logo) — your choice is saved locally and also used on exported reviews. */
+const DEFAULT_LOGO_DATA_URL = 'data:image/jpeg;base64,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';
+(async function initLogo(){
+  const saved = await storageGet('branding:logo');
+  $('#logoImg').src = saved || DEFAULT_LOGO_DATA_URL;
+  $('#logoImg').style.display = 'block';
+  $('#logoDefault').style.display = 'none';
+})();
+$('#logoSlot').addEventListener('click', ()=> $('#logoInput').click());
+$('#logoInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  if(file.size > 1.5*1024*1024){ toast('Use una imagen más liviana (menos de 1.5 MB) para el logo.'); return; }
+  const reader = new FileReader();
+  reader.onload = async ()=>{
+    const dataUrl = reader.result;
+    $('#logoImg').src = dataUrl; $('#logoImg').style.display = 'block'; $('#logoDefault').style.display = 'none';
+    await storageSet('branding:logo', dataUrl);
+    toast('Logo institucional actualizado');
+  };
+  reader.readAsDataURL(file);
+});
+
+/* ---------------- configurable reviewer name ----------------
+   Defaults to Edson unless the professor sets a different name for this device — used in the
+   "Revisado por" line of every exported review. Scoped to the CURRENT document (not global) —
+   each document remembers its own reviewer, and a freshly opened document always starts blank
+   (falling back to the default) until you set one for that specific document. */
+const DEFAULT_REVIEWER = 'M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo';
+function getReviewerName(){
+  return (state.reviewerName && state.reviewerName.trim()) ? state.reviewerName.trim() : DEFAULT_REVIEWER;
+}
+function refreshReviewerUI(){
+  $('#reviewerSub').textContent = `Revisor: ${getReviewerName()}`;
+}
+refreshReviewerUI();
+
+$('#btnReviewer').addEventListener('click', ()=>{
+  if(!state.docHash) return;
+  $('#reviewerNameInput').value = state.reviewerName || '';
+  $('#reviewerModalBackdrop').style.display = 'flex';
+});
+$('#reviewerCancel').addEventListener('click', ()=> $('#reviewerModalBackdrop').style.display = 'none');
+$('#reviewerSave').addEventListener('click', async ()=>{
+  const name = $('#reviewerNameInput').value.trim();
+  state.reviewerName = name;
+  if(state.docHash) await saveMeta();
+  refreshReviewerUI();
+  toast(name ? 'Revisor actualizado para este documento' : 'Se usará el revisor predeterminado');
+  $('#reviewerModalBackdrop').style.display = 'none';
+});
+
+/* ---------------- manual save button ---------------- */
+$('#btnSave').addEventListener('click', async ()=>{
+  if(!state.docHash) return;
+  await flushPendingSaves();
+  await saveMeta();
+  toast('Cambios guardados');
+});
+
+/* ---------------- file loading ---------------- */
+$('#btnUpload').addEventListener('click', ()=> $('#fileInput').click());
+$('#dropZone').addEventListener('click', ()=> $('#fileInput').click());
+$('#dropZone').addEventListener('dragover', e=>{ e.preventDefault(); $('#dropZone').classList.add('drag'); });
+$('#dropZone').addEventListener('dragleave', ()=> $('#dropZone').classList.remove('drag'));
+$('#dropZone').addEventListener('drop', e=>{
+  e.preventDefault(); $('#dropZone').classList.remove('drag');
+  if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+$('#fileInput').addEventListener('change', e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); });
+$('#btnNewDoc').addEventListener('click', resetToNewDocument);
+
+/* Resets the app back to the empty state WITHOUT reloading the page — a full reload was
+   found to leave the app unusable afterwards (and would also needlessly re-request the
+   microphone). Everything already saved stays saved; we just clear the in-memory view. */
+function resetToNewDocument(){
+  if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  clearInterval(recTimerInt);
+  $('#audioModalBackdrop').style.display = 'none';
+  $('#textModalBackdrop').style.display = 'none';
+  $('#popover').style.display = 'none';
+  hideToolbar();
+  deactivateConnection();
+
+  if(state.pdfDoc && typeof state.pdfDoc.destroy === 'function'){ state.pdfDoc.destroy(); }
+  state = { docType:null, fileName:null, docHash:null, pdfDoc:null, pageScales:[], annotations:[], pendingSelection:null, reviewerName:'' };
+  pendingKind = null; pendingPdf = null; pendingDocxMarks = null; currentSelectionRange = null;
+
+  $('#viewer').innerHTML = '';
+  $('#generalComment').value = '';
+  $('#annotList').innerHTML = '<div id="annotEmpty">Seleccione texto en el documento para dejar su primer comentario.</div>';
+  $('#annotCount').textContent = 'Comentarios (0)';
+
+  $('#viewerWrap').style.display = 'none';
+  $('#sidebar').style.display = 'none';
+  $('#emptyState').style.display = 'flex';
+  $('#btnExport').disabled = true;
+  $('#btnDrive').disabled = true;
+  $('#btnEmail').disabled = true;
+  $('#btnSave').disabled = true;
+  $('#btnReviewer').disabled = true;
+  $('#btnNewDoc').style.display = 'none';
+  $('#fileInput').value = '';
+  setSaveStatus('', 'Sin documento');
+  refreshReviewerUI();
+  refreshSavedDocsRail();
+}
+
+async function handleFile(file){
+  const ext = file.name.toLowerCase().split('.').pop();
+  if(ext !== 'pdf' && ext !== 'docx'){ toast('Formato no soportado. Use PDF o DOCX.'); return; }
+
+  state.fileName = file.name;
+  state.docHash = hashFile(file);
+  state.docType = ext;
+  state.annotations = [];
+  state.reviewerName = ''; // resets to default; loadExistingAnnotations() below restores it if this exact document was already saved with a custom reviewer
+
+  $('#emptyState').style.display = 'none';
+  $('#viewerWrap').style.display = 'flex';
+  $('#sidebar').style.display = 'flex';
+  $('#btnExport').disabled = false;
+  $('#btnDrive').disabled = false;
+  $('#btnEmail').disabled = false;
+  $('#btnSave').disabled = false;
+  $('#btnReviewer').disabled = false;
+  $('#btnNewDoc').style.display = 'inline-flex';
+  setSaveStatus('saving', 'Cargando…');
+
+  const buf = await file.arrayBuffer();
+
+  if(ext === 'pdf'){
+    await renderPDF(buf);
+  } else {
+    await renderDocx(buf);
+  }
+
+  await loadExistingAnnotations();
+  renderSidebar();
+  refreshReviewerUI();
+  setSaveStatus('saved', 'Documento listo');
+}
+
+/* ---------------- PDF rendering ---------------- */
+async function renderPDF(arrayBuffer){
+  const viewer = $('#viewer'); viewer.innerHTML = '';
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  state.pdfDoc = pdf;
+  state.pageScales = [];
+
+  for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+    const page = await pdf.getPage(pageNum);
+    const targetWidth = 840;
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = targetWidth / baseViewport.width;
+    const viewport = page.getViewport({ scale });
+    state.pageScales[pageNum] = scale;
+
+    const pageContainer = el('div','page-container');
+    pageContainer.dataset.page = pageNum;
+    pageContainer.style.width = viewport.width + 'px';
+    pageContainer.style.height = viewport.height + 'px';
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    pageContainer.appendChild(canvas);
+
+    const textLayerDiv = el('div','textLayer');
+    textLayerDiv.style.width = viewport.width + 'px';
+    textLayerDiv.style.height = viewport.height + 'px';
+    pageContainer.appendChild(textLayerDiv);
+
+    viewer.appendChild(pageContainer);
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const textContent = await page.getTextContent();
+    pdfjsLib.renderTextLayer({
+      textContent, container: textLayerDiv, viewport, textDivs: []
+    });
+  }
+}
+
+/* ---------------- DOCX rendering ---------------- */
+async function renderDocx(arrayBuffer){
+  const viewer = $('#viewer'); viewer.innerHTML = '';
+  const result = await mammoth.convertToHtml({ arrayBuffer });
+  const wrap = el('div'); wrap.id = 'docxContent';
+  wrap.innerHTML = result.value;
+  viewer.appendChild(wrap);
+}
+
+/* ---------------- selection -> toolbar ---------------- */
+let currentSelectionRange = null;
+
+document.addEventListener('mouseup', (e)=>{
+  if(e.target.closest('#selToolbar') || e.target.closest('.modal-backdrop')) return;
+  setTimeout(()=>{
+    const sel = window.getSelection();
+    if(!sel || sel.isCollapsed || sel.rangeCount === 0){ hideToolbar(); return; }
+    const text = sel.toString().trim();
+    if(!text){ hideToolbar(); return; }
+    const range = sel.getRangeAt(0);
+    const container = state.docType === 'pdf' ? range.commonAncestorContainer : range.commonAncestorContainer;
+    const viewerEl = $('#viewer');
+    if(!viewerEl.contains(container.nodeType === 1 ? container : container.parentElement)){ hideToolbar(); return; }
+
+    currentSelectionRange = range.cloneRange();
+    showToolbar(range);
+  }, 10);
+});
+
+function showToolbar(range){
+  const rect = range.getBoundingClientRect();
+  const tb = $('#selToolbar');
+  tb.style.display = 'flex';
+  const top = window.scrollY + rect.top - 46;
+  const left = window.scrollX + rect.left + rect.width/2 - 60;
+  tb.style.top = Math.max(8, top) + 'px';
+  tb.style.left = Math.max(8, left) + 'px';
+}
+function hideToolbar(){ $('#selToolbar').style.display = 'none'; }
+
+$('#tbAudio').addEventListener('click', ()=> openAudioModal());
+$('#tbText').addEventListener('click', ()=> openTextModal());
+$('#tbQuick').addEventListener('click', ()=> quickMark());
+$('#tbAi').addEventListener('click', ()=> aiMark());
+
+/* fast spelling/writing mark: no modal, instant highlight in amber */
+async function quickMark(){
+  if(!currentSelectionRange) return;
+  preparePending();
+  hideToolbar();
+  const id = 'a'+Date.now()+Math.floor(Math.random()*1000);
+  const annotation = { id, type:'quick', category: QUICK_CAT.id, content:'', createdAt: new Date().toISOString() };
+  await finalizeAnnotation(annotation);
+  toast('Marcado como error de ortografía/redacción');
+}
+
+/* fast "possible AI content" mark: no modal, instant highlight in violet */
+async function aiMark(){
+  if(!currentSelectionRange) return;
+  preparePending();
+  hideToolbar();
+  const id = 'a'+Date.now()+Math.floor(Math.random()*1000);
+  const annotation = { id, type:'ai', category: AI_CAT.id, content:'', createdAt: new Date().toISOString() };
+  await finalizeAnnotation(annotation);
+  toast('Marcado como posible contenido IA');
+}
+
+/* capture rects for PDF selection (relative to page container, in % so it survives re-render) */
+function capturePdfSelectionRects(range){
+  const rects = Array.from(range.getClientRects());
+  const pageEl = getPageContainerFromNode(range.startContainer);
+  if(!pageEl) return null;
+  const pageBox = pageEl.getBoundingClientRect();
+  const page = parseInt(pageEl.dataset.page, 10);
+  const relRects = rects.filter(r=>r.width>0 && r.height>0).map(r=>({
+    top: (r.top - pageBox.top) / pageBox.height * 100,
+    left: (r.left - pageBox.left) / pageBox.width * 100,
+    width: r.width / pageBox.width * 100,
+    height: r.height / pageBox.height * 100,
+  }));
+  return { page, rects: relRects };
+}
+function getPageContainerFromNode(node){
+  let n = node.nodeType === 1 ? node : node.parentElement;
+  while(n && !n.classList.contains('page-container')) n = n.parentElement;
+  return n;
+}
+
+/* wrap a DOCX selection range in a <mark> — handles multi-node ranges */
+function wrapDocxRange(range, id){
+  const mark = () => { const m = document.createElement('mark'); m.className='annot-mark pending'; m.dataset.annotId=id; return m; };
+  if(range.startContainer === range.endContainer){
+    const m = mark();
+    range.surroundContents(m);
+    return [m];
+  }
+  // multi-node: walk text nodes within the range
+  const marks = [];
+  const treeWalker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let n; while((n = treeWalker.nextNode())){ if(range.intersectsNode(n)) nodes.push(n); }
+  nodes.forEach(node=>{
+    const r = document.createRange();
+    r.selectNodeContents(node);
+    if(node === range.startContainer) r.setStart(node, range.startOffset);
+    if(node === range.endContainer) r.setEnd(node, range.endOffset);
+    if(r.collapsed) return;
+    const m = mark();
+    try{ r.surroundContents(m); marks.push(m); }catch(e){/* skip problematic node */}
+  });
+  return marks;
+}
+
+/* ---------------- modals: audio ---------------- */
+let mediaRecorder, audioChunks = [], recordedBlobURL = null, recordedBase64 = null, recTimerInt, recSeconds = 0;
+let pendingKind = null; // 'pdf-rects' | 'docx-marks'
+let pendingPdf = null;  // {page, rects}
+let pendingDocxMarks = null;
+
+function openAudioModal(){
+  if(!currentSelectionRange) return;
+  preparePending();
+  $('#audioQuote').textContent = '“' + truncate(currentSelectionRange.toString().trim(), 160) + '”';
+  resetRecorder();
+  $('#audioModalBackdrop').style.display = 'flex';
+  hideToolbar();
+  startRecording(); // starts capturing the moment the professor clicks "Audio" — no extra click needed
+}
+function truncate(s,n){ return s.length>n ? s.slice(0,n)+'…' : s; }
+
+function preparePending(){
+  const text = currentSelectionRange.toString().trim();
+  if(state.docType === 'pdf'){
+    const info = capturePdfSelectionRects(currentSelectionRange);
+    pendingKind = 'pdf-rects'; pendingPdf = info ? {...info, text} : null; pendingDocxMarks = null;
+  } else {
+    const id = 'tmp'+Date.now();
+    const marks = wrapDocxRange(currentSelectionRange.cloneRange(), id);
+    pendingKind = 'docx-marks'; pendingDocxMarks = { id, marks, text }; pendingPdf = null;
+  }
+  window.getSelection().removeAllRanges();
+}
+
+function resetRecorder(){
+  audioChunks = []; recordedBlobURL = null; recordedBase64 = null; recSeconds = 0;
+  clearInterval(recTimerInt);
+  $('#recTime').textContent = '00:00';
+  $('#recHint').textContent = 'Preparando micrófono…';
+  $('#recPreview').style.display = 'none'; $('#recPreview').innerHTML = '';
+  $('#recBtn').classList.remove('recording');
+  $('#audioSave').disabled = true;
+  $('#recBtn').style.display = 'flex';
+}
+
+/* Reuse a single persistent microphone stream across the whole session — requesting
+   getUserMedia fresh every time is what was causing the browser to re-prompt on every
+   comment. We only ask once, the first time, and keep the stream alive after that. */
+let micStream = null;
+async function ensureMicStream(){
+  if(micStream && micStream.active) return micStream;
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  return micStream;
+}
+
+/* Pin a predictable, small size for voice comments: 32kbps mono Opus is more than enough for
+   spoken clarity, and avoids leaving the bitrate to whatever the browser defaults to (which
+   varies a lot and can be 4x larger for the same length). Falls back gracefully if a browser
+   doesn't support the preferred mimeType. */
+function getVoiceRecorderOptions(){
+  const opts = { audioBitsPerSecond: 32000 };
+  const candidates = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
+  for(const type of candidates){
+    if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)){
+      opts.mimeType = type;
+      break;
+    }
+  }
+  return opts;
+}
+
+async function startRecording(){
+  try{
+    const stream = await ensureMicStream();
+    mediaRecorder = new MediaRecorder(stream, getVoiceRecorderOptions());
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = async ()=>{
+      // NOTE: we deliberately do NOT stop the stream's tracks here — the stream is reused
+      // for the next comment so the browser doesn't have to ask for permission again.
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      recordedBlobURL = URL.createObjectURL(blob);
+      recordedBase64 = await blobToBase64(blob);
+      $('#recPreview').style.display = 'block';
+      $('#recPreview').innerHTML = '';
+      const audio = document.createElement('audio'); audio.controls = true; audio.src = recordedBlobURL;
+      $('#recPreview').appendChild(audio);
+      $('#audioSave').disabled = false;
+      $('#recHint').textContent = 'Grabación lista — puede reproducirla o volver a grabar antes de guardar';
+      $('#recBtn').classList.remove('recording');
+      clearInterval(recTimerInt);
+      if(autoSaveAfterStop){ autoSaveAfterStop = false; saveAudioComment(); }
+    };
+    mediaRecorder.start();
+    recSeconds = 0;
+    $('#recBtn').classList.add('recording');
+    $('#recHint').textContent = 'Grabando… presione para detener';
+    recTimerInt = setInterval(()=>{
+      recSeconds++;
+      const m = String(Math.floor(recSeconds/60)).padStart(2,'0');
+      const s = String(recSeconds%60).padStart(2,'0');
+      $('#recTime').textContent = `${m}:${s}`;
+    }, 1000);
+  }catch(err){
+    if(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')){
+      $('#recHint').textContent = 'Micrófono bloqueado. Si está en una vista previa embebida, descargue el archivo y ábralo directo en su navegador.';
+      toast('Micrófono bloqueado. Descargue el archivo y ábralo directo en su navegador.');
+    } else if(err && err.name === 'NotFoundError'){
+      $('#recHint').textContent = 'No se encontró ningún micrófono conectado.';
+      toast('No se encontró ningún micrófono conectado en este dispositivo.');
+    } else {
+      $('#recHint').textContent = 'No se pudo acceder al micrófono.';
+      toast('No se pudo acceder al micrófono. Revise los permisos del navegador.');
+    }
+  }
+}
+function stopRecording(){ if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }
+
+$('#recBtn').addEventListener('click', ()=>{
+  if(mediaRecorder && mediaRecorder.state === 'recording'){ stopRecording(); }
+  else{ resetRecorder(); startRecording(); } // allow re-recording before saving
+});
+
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onloadend = ()=> resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+$('#audioCancel').addEventListener('click', ()=>{ closeAudioModal(true); });
+function closeAudioModal(discard){
+  $('#audioModalBackdrop').style.display = 'none';
+  if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  clearInterval(recTimerInt);
+  if(discard) discardPending();
+}
+function discardPending(){
+  if(pendingKind === 'docx-marks' && pendingDocxMarks){
+    pendingDocxMarks.marks.forEach(m=>{
+      const parent = m.parentNode; if(!parent) return;
+      while(m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+    });
+  }
+  pendingKind = null; pendingPdf = null; pendingDocxMarks = null;
+}
+
+$('#audioSave').addEventListener('click', saveAudioComment);
+async function saveAudioComment(){
+  if($('#audioSave').disabled || !recordedBase64) return;
+  const id = 'a'+Date.now()+Math.floor(Math.random()*1000);
+  const annotation = {
+    id, type:'audio', category:null, content: recordedBase64, createdAt: new Date().toISOString(),
+  };
+  await finalizeAnnotation(annotation);
+  $('#audioModalBackdrop').style.display = 'none';
+  toast('Comentario en audio guardado — puede etiquetarlo haciendo clic en él');
+}
+
+/* ---------------- modals: text ---------------- */
+function openTextModal(){
+  if(!currentSelectionRange) return;
+  preparePending();
+  $('#textQuote').textContent = '“' + truncate(currentSelectionRange.toString().trim(), 160) + '”';
+  $('#textBody').value = '';
+  $('#textModalBackdrop').style.display = 'flex';
+  hideToolbar();
+  setTimeout(()=> $('#textBody').focus(), 50);
+}
+$('#textCancel').addEventListener('click', ()=>{
+  $('#textModalBackdrop').style.display = 'none';
+  discardPending();
+});
+$('#textSave').addEventListener('click', saveTextComment);
+async function saveTextComment(){
+  const body = $('#textBody').value.trim();
+  if(!body){ toast('Escriba un comentario antes de guardar.'); return; }
+  const id = 'a'+Date.now()+Math.floor(Math.random()*1000);
+  const annotation = { id, type:'text', category:null, content: body, createdAt: new Date().toISOString() };
+  await finalizeAnnotation(annotation);
+  $('#textModalBackdrop').style.display = 'none';
+  toast('Comentario guardado — puede etiquetarlo haciendo clic en él');
+}
+
+/* ---------------- keyboard shortcut: Ctrl+Enter (or Cmd+Enter) saves the open comment ---------------- */
+let autoSaveAfterStop = false;
+document.addEventListener('keydown', (e)=>{
+  if(!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return;
+  if($('#textModalBackdrop').style.display === 'flex'){
+    e.preventDefault(); saveTextComment();
+  } else if($('#audioModalBackdrop').style.display === 'flex'){
+    e.preventDefault();
+    if(mediaRecorder && mediaRecorder.state === 'recording'){
+      // still recording: stop it now and save automatically the moment it's ready
+      autoSaveAfterStop = true;
+      stopRecording();
+    } else if(!$('#audioSave').disabled){
+      saveAudioComment();
+    }
+  }
+});
+
+/* ---------------- finalize (shared by audio/text) ---------------- */
+/* ---------------- ordering, numbering & paragraph location ---------------- */
+function sortedAnnotations(){
+  return [...state.annotations].sort((a,b)=>{
+    if(state.docType==='pdf') return (a.page-b.page) || ((a.rects?.[0]?.top||0) - (b.rects?.[0]?.top||0));
+    return new Date(a.createdAt) - new Date(b.createdAt);
+  });
+}
+function renumberBadges(){
+  sortedAnnotations().forEach((a, idx)=>{
+    a.number = idx+1;
+    document.querySelectorAll(`[data-annot-id="${a.id}"] > .badge`).forEach(b=> b.textContent = a.number);
+  });
+}
+const DOCX_BLOCK_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote';
+function computeDocxParagraphNumber(node){
+  const container = $('#docxContent'); if(!container || !node) return null;
+  const ancestor = node.closest(DOCX_BLOCK_SELECTOR);
+  if(!ancestor) return null;
+  const blocks = Array.from(container.querySelectorAll(DOCX_BLOCK_SELECTOR));
+  const idx = blocks.indexOf(ancestor);
+  return idx >= 0 ? idx+1 : null;
+}
+
+/* Word files don't store real page-break positions (Word computes those itself when it
+   prints/paginates, and doesn't save them) — so we can't show true page numbers. This inserts
+   an approximate divider roughly every ~350 words (a common estimate for a double-spaced
+   academic page) purely as a visual break, operating on a detached clone so it never touches
+   the live editing view. Clearly labeled as approximate wherever it's shown. */
+function insertApproxPageBreaks(container){
+  const WORDS_PER_PAGE = 350;
+  const blocks = Array.from(container.querySelectorAll(DOCX_BLOCK_SELECTOR));
+  let wordCount = 0, pageNum = 1;
+  blocks.forEach(block=>{
+    const words = (block.textContent||'').trim().split(/\s+/).filter(Boolean).length;
+    if(wordCount > 0 && wordCount + words > WORDS_PER_PAGE * pageNum){
+      pageNum++;
+      const marker = document.createElement('div');
+      marker.className = 'approx-page-break';
+      marker.textContent = `· · · aprox. página ${pageNum} · · ·`;
+      block.parentNode.insertBefore(marker, block);
+    }
+    wordCount += words;
+  });
+}
+
+async function finalizeAnnotation(annotation){
+  if(pendingKind === 'pdf-rects'){
+    if(!pendingPdf){ toast('No se pudo ubicar la selección.'); return; }
+    annotation.page = pendingPdf.page;
+    annotation.rects = pendingPdf.rects;
+    annotation.snippet = pendingPdf.text;
+    state.annotations.push(annotation);
+    renderPdfHighlight(annotation);
+  } else if(pendingKind === 'docx-marks'){
+    annotation.snippet = pendingDocxMarks.text;
+    annotation.paragraph = computeDocxParagraphNumber(pendingDocxMarks.marks[0]);
+    state.annotations.push(annotation);
+    pendingDocxMarks.marks.forEach((m,i)=>{
+      m.classList.remove('pending');
+      m.classList.add('type-'+annotation.type);
+      m.dataset.annotId = annotation.id;
+      m.style.background = '';
+      m.style.position = 'relative';
+      m.addEventListener('click', (e)=>{ e.stopPropagation(); openPopoverFor(annotation.id, m); activateConnection(annotation.id); });
+      if(i === 0){
+        const badge = el('span','badge type-'+annotation.type);
+        m.appendChild(badge);
+      }
+    });
+    scheduleSaveMeta(); // persist baked HTML (marks + badge)
+  }
+  await saveAnnotationToStorage(annotation);
+  await saveMeta();
+  renderSidebar(); // also renumbers badges
+  pendingKind = null; pendingPdf = null; pendingDocxMarks = null;
+  currentSelectionRange = null;
+}
+
+/* ---------------- render PDF highlight overlay ---------------- */
+function renderPdfHighlight(annotation){
+  const pageEl = document.querySelector(`.page-container[data-page="${annotation.page}"]`);
+  if(!pageEl) return;
+  pageEl.style.position = 'relative';
+  annotation.rects.forEach((r, idx)=>{
+    const div = el('div', 'hl-rect type-'+annotation.type);
+    div.style.top = r.top+'%'; div.style.left = r.left+'%';
+    div.style.width = r.width+'%'; div.style.height = r.height+'%';
+    div.dataset.annotId = annotation.id;
+    div.addEventListener('click', (e)=>{ e.stopPropagation(); openPopoverFor(annotation.id, div); activateConnection(annotation.id); });
+    if(idx === 0){
+      const badge = el('span','badge type-'+annotation.type);
+      div.appendChild(badge);
+    }
+    pageEl.appendChild(div);
+  });
+}
+
+/* ---------------- popover ---------------- */
+const FIXED_TYPE_CATS = { quick: QUICK_CAT, ai: AI_CAT };
+function openPopoverFor(id, anchorEl){
+  const annotation = state.annotations.find(a=>a.id===id);
+  if(!annotation) return;
+  const pop = $('#popover');
+  const fixedCat = FIXED_TYPE_CATS[annotation.type];
+  const cat = fixedCat || catInfo(annotation.category);
+  pop.innerHTML = '';
+  const ph = el('div','ph');
+  const pill = el('span','cat-pill type-'+annotation.type); pill.textContent = cat.label;
+  const close = el('button','close'); close.innerHTML = '&times;';
+  close.addEventListener('click', ()=> { pop.style.display='none'; deactivateConnection(); });
+  ph.appendChild(pill); ph.appendChild(close);
+  pop.appendChild(ph);
+
+  const locText = state.docType==='pdf' ? `pág. ${annotation.page}` : (annotation.paragraph ? `párr. ${annotation.paragraph}` : '');
+  const metaLine = el('div'); metaLine.style.cssText='font-size:10.5px;color:var(--muted);margin:-4px 0 9px;';
+  metaLine.textContent = `Comentario #${annotation.number || '—'}${locText ? ' · '+locText : ''}`;
+  pop.appendChild(metaLine);
+
+  if(annotation.type === 'audio'){
+    const audio = document.createElement('audio'); audio.controls = true; audio.src = annotation.content;
+    pop.appendChild(audio);
+  } else if(fixedCat){
+    const hint = el('div'); hint.style.cssText='font-size:11.5px;color:var(--muted);margin-bottom:5px;';
+    hint.textContent = annotation.type==='ai'
+      ? 'Marca rápida de posible contenido IA — opcionalmente añade una nota breve:'
+      : 'Marca rápida — opcionalmente añade una nota breve:';
+    pop.appendChild(hint);
+    const ta = document.createElement('textarea'); ta.className='quick-note'; ta.value = annotation.content || '';
+    ta.placeholder = annotation.type==='ai' ? 'p. ej. "revisar con detector de IA"' : 'p. ej. "concordancia" o "revisar tilde"';
+    ta.addEventListener('blur', async ()=>{
+      annotation.content = ta.value.trim();
+      await saveAnnotationToStorage(annotation);
+      renderSidebar();
+    });
+    pop.appendChild(ta);
+  } else {
+    const p = el('div','txt'); p.textContent = annotation.content;
+    pop.appendChild(p);
+  }
+
+  if(!fixedCat){
+    const catWrap = el('div'); catWrap.style.cssText = 'margin-top:9px;';
+    const catLbl = el('div'); catLbl.style.cssText='font-size:10.5px;color:var(--muted);margin-bottom:4px;'; catLbl.textContent='Categoría';
+    const catSel = document.createElement('select');
+    fillCategorySelect(catSel, annotation.category);
+    catSel.addEventListener('change', async ()=>{
+      annotation.category = catSel.value || null;
+      pill.textContent = catInfo(annotation.category).label;
+      await saveAnnotationToStorage(annotation);
+      renderSidebar();
+    });
+    catWrap.appendChild(catLbl); catWrap.appendChild(catSel);
+    pop.appendChild(catWrap);
+  }
+  const foot = el('div','foot');
+  const del = el('button','del'); del.textContent = 'Eliminar comentario';
+  del.addEventListener('click', ()=> removeAnnotation(annotation.id));
+  const ts = el('span','ts'); ts.textContent = new Date(annotation.createdAt).toLocaleString('es-GT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  foot.appendChild(del); foot.appendChild(ts);
+  pop.appendChild(foot);
+
+  const rect = anchorEl.getBoundingClientRect();
+  pop.style.display = 'block';
+  let top = window.scrollY + rect.bottom + 8;
+  let left = window.scrollX + rect.left;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - 300;
+  if(left > maxLeft) left = maxLeft;
+  pop.style.top = top + 'px'; pop.style.left = left + 'px';
+}
+document.addEventListener('mousedown', (e)=>{
+  const pop = $('#popover');
+  if(pop.style.display==='block' && !pop.contains(e.target) && !e.target.closest('.hl-rect') && !e.target.closest('mark.annot-mark') && !e.target.closest('.annot-item')){
+    pop.style.display = 'none';
+    deactivateConnection();
+  }
+});
+
+async function removeAnnotation(id){
+  const annotation = state.annotations.find(a=>a.id===id);
+  if(!annotation) return;
+  state.annotations = state.annotations.filter(a=>a.id!==id);
+  $('#popover').style.display = 'none';
+
+  if(state.docType === 'pdf'){
+    document.querySelectorAll(`.hl-rect[data-annot-id="${id}"]`).forEach(n=>n.remove());
+  } else {
+    document.querySelectorAll(`mark.annot-mark[data-annot-id="${id}"]`).forEach(m=>{
+      const parent = m.parentNode; if(!parent) return;
+      while(m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+    });
+    scheduleSaveMeta();
+  }
+  await deleteAnnotationFromStorage(id);
+  await saveMeta();
+  renderSidebar();
+  toast('Comentario eliminado');
+}
+
+/* ---------------- sidebar list ---------------- */
+function annotationCounts(){
+  const c = { audio:0, text:0, quick:0, ai:0 };
+  state.annotations.forEach(a=>{ if(c[a.type]!==undefined) c[a.type]++; });
+  return c;
+}
+function renderSidebar(){
+  deactivateConnection();
+  renumberBadges();
+  const total = state.annotations.length;
+  if(total === 0){
+    $('#annotCount').textContent = 'Comentarios (0)';
+  } else {
+    const c = annotationCounts();
+    $('#annotCount').textContent = `Comentarios (${total}) · ${c.audio} audio · ${c.text} texto · ${c.quick} ortografía · ${c.ai} IA`;
+  }
+  const list = $('#annotList');
+  list.innerHTML = '';
+  if(total === 0){
+    list.innerHTML = '<div id="annotEmpty">Seleccione texto en el documento para dejar su primer comentario.</div>';
+    return;
+  }
+  const sorted = sortedAnnotations();
+  sorted.forEach((a, idx)=>{
+    const cat = FIXED_TYPE_CATS[a.type] || catInfo(a.category);
+    const item = el('div','annot-item');
+    item.dataset.annotId = a.id;
+    const row1 = el('div','row1');
+    const numBadge = el('span','num-badge type-'+a.type); numBadge.textContent = idx+1;
+    const icon = el('span','icon type-'+a.type);
+    icon.innerHTML = a.type==='audio'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0"/></svg>'
+      : a.type==='quick'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h7l-1 8 11-14h-7z"/></svg>'
+      : a.type==='ai'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 00-3-3L5 17v3z"/></svg>';
+    const catLabel = el('span','cat'); catLabel.textContent = cat.label;
+    const loc = el('span','loc');
+    loc.textContent = state.docType==='pdf' ? `pág. ${a.page}` : (a.paragraph ? `párr. ${a.paragraph}` : '');
+    row1.appendChild(numBadge); row1.appendChild(icon); row1.appendChild(catLabel); row1.appendChild(loc);
+    item.appendChild(row1);
+
+    if(a.snippet){ const sn = el('div','snippet'); sn.textContent = '“'+a.snippet+'”'; item.appendChild(sn); }
+
+    if(a.type==='audio'){
+      const audio = document.createElement('audio'); audio.controls=true; audio.src=a.content; item.appendChild(audio);
+    } else if(a.type==='quick' || a.type==='ai'){
+      const txt = el('div','txt'); txt.style.color = a.content ? 'var(--ink)' : 'var(--muted)';
+      txt.style.fontStyle = a.content ? 'normal' : 'italic';
+      txt.textContent = a.content || (a.type==='ai' ? 'Marca de posible contenido IA sin nota adicional' : 'Marca de ortografía/redacción sin nota adicional');
+      item.appendChild(txt);
+    } else {
+      const txt = el('div','txt'); txt.textContent = a.content; item.appendChild(txt);
+    }
+    const del = el('button','del'); del.textContent='Eliminar'; del.addEventListener('click',(e)=>{ e.stopPropagation(); removeAnnotation(a.id); });
+    item.appendChild(del);
+
+    item.addEventListener('click', ()=>{ scrollToAnnotation(a); activateConnection(a.id); });
+    list.appendChild(item);
+  });
+}
+function scrollToAnnotation(a){
+  let target;
+  if(state.docType==='pdf'){
+    target = document.querySelector(`.hl-rect[data-annot-id="${a.id}"]`);
+  } else {
+    target = document.querySelector(`mark.annot-mark[data-annot-id="${a.id}"]`);
+  }
+  if(target){ target.scrollIntoView({ behavior:'smooth', block:'center' }); }
+}
+
+/* ---------------- connector line: links a highlight to its comment card ----------------
+   Draws a dashed line (in the comment's own color) from the highlighted text to its card
+   in the sidebar, so it's obvious which passage a comment belongs to — the two panels
+   scroll independently, so the line is recomputed on every frame while active. */
+let activeConnectionId = null, connectorRAF = null;
+function getHighlightAnchorEl(id){
+  const nodes = state.docType==='pdf'
+    ? document.querySelectorAll(`.hl-rect[data-annot-id="${id}"]`)
+    : document.querySelectorAll(`mark.annot-mark[data-annot-id="${id}"]`);
+  return nodes.length ? nodes[nodes.length-1] : null;
+}
+function activateConnection(id){
+  activeConnectionId = id;
+  $('#connectorSvg').style.display = 'block';
+  if(connectorRAF) cancelAnimationFrame(connectorRAF);
+  const step = ()=>{
+    if(!updateConnectorLine()){ deactivateConnection(); return; }
+    connectorRAF = requestAnimationFrame(step);
+  };
+  step();
+}
+function deactivateConnection(){
+  activeConnectionId = null;
+  if(connectorRAF){ cancelAnimationFrame(connectorRAF); connectorRAF = null; }
+  const svg = $('#connectorSvg');
+  if(svg) svg.style.display = 'none';
+}
+function updateConnectorLine(){
+  if(!activeConnectionId) return false;
+  const a = state.annotations.find(x=>x.id===activeConnectionId);
+  const cardEl = document.querySelector(`.annot-item[data-annot-id="${activeConnectionId}"]`);
+  const anchorEl = getHighlightAnchorEl(activeConnectionId);
+  if(!a || !cardEl || !anchorEl) return false;
+  const ar = anchorEl.getBoundingClientRect();
+  const cr = cardEl.getBoundingClientRect();
+  const viewerBox = $('#viewerWrap').getBoundingClientRect();
+  const sidebarBox = $('#sidebar').getBoundingClientRect();
+  // if either endpoint has scrolled fully out of its panel, hide the line rather than draw off-screen
+  const anchorVisible = ar.bottom > viewerBox.top && ar.top < viewerBox.bottom;
+  const cardVisible = cr.bottom > sidebarBox.top && cr.top < sidebarBox.bottom;
+  const line = $('#connectorLine');
+  if(!anchorVisible || !cardVisible){ line.style.opacity = '0'; return true; }
+  line.style.opacity = '1';
+  const x1 = Math.min(ar.right, viewerBox.right);
+  const y1 = ar.top + ar.height/2;
+  const x2 = cr.left;
+  const y2 = cr.top + 15;
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  const color = { audio:'var(--accent)', text:'var(--accent-2)', quick:'var(--accent-3)', ai:'var(--accent-4)' }[a.type] || 'var(--accent)';
+  line.style.stroke = color;
+  return true;
+}
+window.addEventListener('resize', ()=>{ if(activeConnectionId) updateConnectorLine(); });
+
+/* ---------------- reload existing annotations from storage ---------------- */
+async function loadExistingAnnotations(){
+  const meta = await storageGet(`revdoc:${state.docHash}:meta`);
+  if(!meta) return;
+  $('#generalComment').value = meta.generalComment || '';
+  state.reviewerName = meta.reviewerName || '';
+
+  if(state.docType === 'docx' && meta.contentHTML){
+    $('#docxContent').innerHTML = meta.contentHTML;
+  }
+
+  const ids = meta.annotationIds || [];
+  for(const id of ids){
+    const a = await storageGet(`revdoc:${state.docHash}:annot:${id}`);
+    if(!a) continue;
+    state.annotations.push(a);
+    if(state.docType === 'pdf'){
+      renderPdfHighlight(a);
+    } else {
+      // marks already baked into contentHTML; just attach listeners
+      document.querySelectorAll(`mark.annot-mark[data-annot-id="${a.id}"]`).forEach(m=>{
+        m.addEventListener('click', (e)=>{ e.stopPropagation(); openPopoverFor(a.id, m); activateConnection(a.id); });
+      });
+    }
+  }
+  if(ids.length) toast(`Se restauraron ${ids.length} comentario(s) guardados de este documento`);
+}
+
+$('#generalComment').addEventListener('input', scheduleSaveMeta);
+
+/* ---------------- saved documents rail (empty state) ---------------- */
+async function refreshSavedDocsRail(){
+  const wrap = $('#savedDocs'); const list = $('#savedDocsList');
+  list.innerHTML = '';
+  const idx = await storageGet('revdoc:index');
+  if(!idx || Object.keys(idx).length === 0){ wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  Object.entries(idx).sort((a,b)=> new Date(b[1].updatedAt)-new Date(a[1].updatedAt)).forEach(([hash,info])=>{
+    const item = el('div','saved-doc-item');
+    const left = el('div');
+    const name = el('div','name'); name.textContent = info.fileName;
+    const meta = el('div','meta'); meta.textContent = `${info.count} comentario(s) · vuelva a subir este mismo archivo para continuar`;
+    left.appendChild(name); left.appendChild(meta);
+    const del = el('button'); del.textContent = 'Eliminar';
+    del.style.cssText = 'background:none;border:none;color:var(--muted);font-size:11.5px;cursor:pointer;text-decoration:underline;padding:0;flex:none;';
+    del.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      if(!confirm(`¿Eliminar del historial "${info.fileName}"? Esto borra sus comentarios guardados (el documento original no se modifica).`)) return;
+      await deleteSavedDocument(hash);
+      refreshSavedDocsRail();
+    });
+    item.appendChild(left);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+async function deleteSavedDocument(hash){
+  const meta = await storageGet(`revdoc:${hash}:meta`);
+  if(meta && meta.annotationIds){
+    for(const id of meta.annotationIds){ await storageDelete(`revdoc:${hash}:annot:${id}`); }
+  }
+  await storageDelete(`revdoc:${hash}:meta`);
+  const idx = await storageGet('revdoc:index') || {};
+  delete idx[hash];
+  await storageSet('revdoc:index', idx);
+}
+$('#btnClearHistory').addEventListener('click', async ()=>{
+  const idx = await storageGet('revdoc:index');
+  if(!idx || Object.keys(idx).length === 0) return;
+  if(!confirm('¿Eliminar todo el historial de revisiones guardadas en este navegador? Esta acción no se puede deshacer. Los documentos originales no se modifican, solo se borran los comentarios guardados aquí.')) return;
+  for(const hash of Object.keys(idx)){ await deleteSavedDocument(hash); }
+  toast('Historial eliminado');
+  refreshSavedDocsRail();
+});
+refreshSavedDocsRail();
+
+/* ================================================================
+   EXPORT — standalone, self-contained HTML the student can open
+   in any browser, with audio comments embedded as base64.
+   ================================================================ */
+$('#btnExport').addEventListener('click', downloadExport);
+
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function downloadExport(){
+  toast('Generando archivo de revisión…');
+  const html = await buildExportHTML();
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const base = state.fileName.replace(/\.(pdf|docx)$/i,'');
+  a.href = url; a.download = `${base}_revisado.html`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Revisión exportada — envíesela al estudiante');
+}
+
+async function buildExportHTML(){
+  const generalComment = $('#generalComment').value.trim();
+  renumberBadges();
+  const sortedList = sortedAnnotations();
+  let bodyHTML = '';
+  let sidebarHTML = '';
+  const totalDocxBlocks = state.docType === 'docx'
+    ? $('#docxContent').querySelectorAll(DOCX_BLOCK_SELECTOR).length
+    : 0;
+
+  function commentCardHTML(a){
+    const cat = a.type === 'quick' ? QUICK_CAT : (a.type === 'ai' ? AI_CAT : catInfo(a.category));
+    const body = a.type==='audio'
+      ? `<audio controls src="${a.content}"></audio>`
+      : (a.type==='quick' || a.type==='ai')
+      ? `<div class="txt">${a.content ? escapeHtml(a.content) : `<em style="color:var(--muted);">${a.type==='ai' ? 'Marca de posible contenido IA sin nota adicional' : 'Marca de ortografía/redacción sin nota adicional'}</em>`}</div>`
+      : `<div class="txt">${escapeHtml(a.content)}</div>`;
+    const snippetHTML = a.snippet ? `<div class="snippet">“${escapeHtml(truncate(a.snippet,140))}”</div>` : '';
+    const locText = state.docType==='pdf' ? `pág. ${a.page}` : (a.paragraph ? `párr. ${a.paragraph}` : '');
+    const topPct = state.docType==='pdf'
+      ? ((a.rects && a.rects[0]) ? a.rects[0].top : '')
+      : ((a.paragraph && totalDocxBlocks) ? ((a.paragraph-1)/totalDocxBlocks*100) : '');
+    return `<div class="comment-card" id="comment-${a.id}" data-annot-id="${a.id}" data-type="${a.type}" data-top-pct="${topPct}">
+      <div class="ph"><span class="num-pill type-${a.type}">${a.number}</span><span class="cat-pill type-${a.type}">${escapeHtml(cat.label)}</span>${locText?`<span class="loc">${locText}</span>`:''}</div>
+      ${snippetHTML}
+      ${body}
+    </div>`;
+  }
+
+  if(state.docType === 'pdf'){
+    // Comments now sit right beside the page they belong to, instead of one long list —
+    // easier to see which page produced which feedback. Pages with NO comments are skipped
+    // entirely (this is what actually keeps large documents small) — a small note marks any
+    // gap so it's clear those pages exist in the original, just weren't commented on.
+    const pages = Array.from(document.querySelectorAll('.page-container'));
+    const totalPages = pages.length;
+    let pageBlocksHTML = '';
+    let includedCount = 0;
+    let lastIncludedPageNum = 0;
+
+    pages.forEach(p=>{
+      const pageNum = p.dataset.page;
+      const pageAnnots = sortedList.filter(a=>String(a.page)===String(pageNum));
+      if(pageAnnots.length === 0) return; // skip rendering (and encoding) pages with no comments
+
+      const pageNumInt = parseInt(pageNum, 10);
+      if(lastIncludedPageNum > 0 && pageNumInt > lastIncludedPageNum + 1){
+        const from = lastIncludedPageNum + 1, to = pageNumInt - 1;
+        const label = from === to ? `página ${from}` : `páginas ${from}–${to}`;
+        pageBlocksHTML += `<div class="page-gap">· · · ${label} sin comentarios · · ·</div>`;
+      }
+      lastIncludedPageNum = pageNumInt;
+      includedCount++;
+
+      const canvas = p.querySelector('canvas');
+      // WebP instead of PNG: tested against real exported pages and consistently ~28% smaller
+      // with no visible quality loss. (JPEG was tried first but actually came out LARGER for
+      // this kind of crisp text-on-white content — its compression is tuned for photos, not
+      // flat/high-contrast pages — so WebP is the one that actually helps here.)
+      const img = canvas.toDataURL('image/webp', 0.8);
+      let rectsHTML = '';
+      pageAnnots.forEach(a=>{
+        a.rects.forEach((r, idx)=>{
+          const badgeHTML = idx===0 ? `<span class="badge type-${a.type}">${a.number||''}</span>` : '';
+          rectsHTML += `<div class="hl-rect type-${a.type}" style="top:${r.top}%;left:${r.left}%;width:${r.width}%;height:${r.height}%;" data-annot-id="${a.id}" onclick="toggleComment('${a.id}')">${badgeHTML}</div>`;
+        });
+      });
+      const pageCommentsHTML = pageAnnots.map(commentCardHTML).join('');
+      pageBlocksHTML += `<div class="page-block">
+        <div class="page-side">
+          <div class="page-num-label">Página ${pageNum}</div>
+          <div class="page-container"><img src="${img}"/>${rectsHTML}</div>
+        </div>
+        <div class="comments-side">${pageCommentsHTML}</div>
+      </div>`;
+    });
+
+    if(lastIncludedPageNum > 0 && lastIncludedPageNum < totalPages){
+      const from = lastIncludedPageNum + 1, to = totalPages;
+      const label = from === to ? `página ${from}` : `páginas ${from}–${to}`;
+      pageBlocksHTML += `<div class="page-gap">· · · ${label} sin comentarios · · ·</div>`;
+    }
+
+    const scopeNote = includedCount
+      ? `<div class="export-scope-note">Se muestran ${includedCount} de ${totalPages} página${totalPages===1?'':'s'} — únicamente las que tienen comentarios.</div>`
+      : `<div class="export-scope-note">Este documento aún no tiene comentarios.</div>`;
+
+    bodyHTML = `<div id="viewer">${scopeNote}${pageBlocksHTML}</div>`;
+    sidebarHTML = ''; // comments are already inline per page, no separate global list needed
+  } else {
+    // badges are already baked into the live marks by finalizeAnnotation/renumberBadges, so
+    // cloning innerHTML here carries the current numbers over automatically.
+    // Word doesn't store where pages actually break (that's computed by Word itself at print
+    // time, not saved in the file) — so real page numbers aren't available. As a substitute,
+    // we insert an approximate divider every ~350 words, clearly labeled as approximate, just
+    // so the document isn't one unbroken wall of text. Paragraph numbers remain the precise,
+    // reliable reference for each comment.
+    const docxClone = $('#docxContent').cloneNode(true);
+    insertApproxPageBreaks(docxClone);
+    bodyHTML = `<div class="export-scope-note">Las líneas "· · ·" son cortes de página aproximados (Word no guarda el número de página real en el archivo) — úselos solo como referencia visual; el número de párrafo de cada comentario es la ubicación exacta.</div><div id="docxContent">${docxClone.innerHTML}</div>`;
+    const commentsHTML = sortedList.map(commentCardHTML).join('');
+    sidebarHTML = `<div id="sidebar">
+      <h3>Todos los comentarios (${sortedList.length})</h3>
+      ${commentsHTML || '<p style="color:var(--muted); font-size:13px;">Sin comentarios.</p>'}
+    </div>`;
+  }
+
+  const counts = { audio:0, text:0, quick:0, ai:0 };
+  sortedList.forEach(a=>{ if(counts[a.type]!==undefined) counts[a.type]++; });
+  const summaryHTML = `<div id="summaryBlock">
+    <h3>Resumen de la revisión</h3>
+    <div class="summary-grid">
+      <div class="summary-item"><span class="num">${sortedList.length}</span><span class="lbl">Comentarios totales</span></div>
+      <div class="summary-item type-audio"><span class="num">${counts.audio}</span><span class="lbl">En audio</span></div>
+      <div class="summary-item type-text"><span class="num">${counts.text}</span><span class="lbl">Escritos</span></div>
+      <div class="summary-item type-quick"><span class="num">${counts.quick}</span><span class="lbl">Ortografía / redacción</span></div>
+      <div class="summary-item type-ai"><span class="num">${counts.ai}</span><span class="lbl">Contenido IA</span></div>
+    </div>
+  </div>
+  <div id="creditsBlock">Idea y desarrollo de plataforma: M.Sc. Edson Vitelio Amézquita Cutz. Contacto: <a href="mailto:edsonamezquita@profesor.usac.edu.gt">edsonamezquita@profesor.usac.edu.gt</a></div>`;
+
+  const logoDataUrl = await storageGet('branding:logo');
+  const logoHTML = `<img src="${logoDataUrl || DEFAULT_LOGO_DATA_URL}" alt="Logo institucional">`;
+  const reviewerName = await getReviewerName();
+
+  const exportDoc = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Plataforma de revisión de trabajos académicos CUNOC-USAC — ${escapeHtml(state.fileName)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#152238; --paper:#f4f7fb; --line:#cfdaeb; --accent:#1c4a86; --accent-soft:#dbe7f6; --accent-2:#2f7a8c; --accent-2-soft:#dcedf1; --accent-3:#b3790f; --accent-3-soft:#f7ecd2; --accent-4:#7c3aed; --accent-4-soft:#ece3fb; --muted:#5c6c85; }
+  *{box-sizing:border-box;}
+  body{ margin:0; font-family:'PT Sans',sans-serif; background:var(--paper); color:var(--ink); }
+  header{ display:flex; align-items:center; gap:14px; padding:18px 26px; border-bottom:1px solid var(--line); background:#fff; }
+  header .logo{ width:44px; height:44px; border-radius:50%; border:1.5px solid var(--line); flex:none; overflow:hidden; }
+  header .logo img{ width:100%; height:100%; object-fit:cover; }
+  header .eyebrow{ font-size:10px; color:var(--accent); text-transform:uppercase; letter-spacing:.6px; font-weight:700; }
+  header .mark{ font-family:'Merriweather',serif; font-weight:700; font-size:16px; line-height:1.3; }
+  header .sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+  main{ display:flex; max-width:1200px; margin:0 auto; gap:64px; padding:28px 20px 80px; align-items:flex-start; }
+  #docCol{ flex:1; min-width:0; }
+  #general{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-bottom:22px; }
+  #general h3{ margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+  #general p{ margin:0; font-size:14px; line-height:1.6; white-space:pre-wrap; }
+  .page-block{ display:flex; gap:60px; align-items:flex-start; margin-bottom:28px; }
+  .page-side{ flex:1; min-width:0; }
+  .page-num-label{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px; font-weight:700; }
+  .comments-side{ width:300px; flex:none; }
+  .comments-side .no-comments{ color:var(--muted); font-size:12.5px; padding:10px 2px; font-style:italic; }
+  .page-gap{ text-align:center; color:var(--muted); font-size:12.5px; font-style:italic; padding:6px 0 18px; }
+  .approx-page-break{ text-align:center; color:var(--muted); font-size:11px; letter-spacing:.3px; border-top:1px dashed var(--line); margin:30px 0 22px; padding-top:9px; }
+  .export-scope-note{ text-align:center; color:var(--muted); font-size:12px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-bottom:20px; }
+  .page-container{ position:relative; margin:0; box-shadow:0 8px 22px rgba(21,34,56,.12); background:#fff; }
+  .page-container img{ display:block; width:100%; }
+  #docxContent{ background:#fff; box-shadow:0 8px 22px rgba(21,34,56,.12); padding:52px 60px; font-family:'Merriweather',serif; font-size:15.5px; line-height:1.75; }
+  mark.annot-mark, .hl-rect{ cursor:pointer; border-radius:2px; position:relative; }
+  mark.annot-mark.type-audio, .hl-rect.type-audio{ background:rgba(28,74,134,.20); border-bottom:2px dashed var(--accent); }
+  mark.annot-mark.type-text, .hl-rect.type-text{ background:rgba(47,122,140,.20); border-bottom:2px dashed var(--accent-2); }
+  mark.annot-mark.type-quick, .hl-rect.type-quick{ background:rgba(179,121,15,.26); border-bottom:2px dashed var(--accent-3); }
+  mark.annot-mark.type-ai, .hl-rect.type-ai{ background:rgba(124,58,237,.18); border-bottom:2px dashed var(--accent-4); }
+  .hl-rect{ position:absolute; }
+  .badge{ position:absolute; top:-9px; left:-9px; width:17px; height:17px; border-radius:50%; font-size:9.5px; font-weight:700; color:#fff; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; box-shadow:0 1px 3px rgba(21,34,56,.35); }
+  .badge.type-audio{ background:var(--accent); }
+  .badge.type-text{ background:var(--accent-2); }
+  .badge.type-quick{ background:var(--accent-3); }
+  .badge.type-ai{ background:var(--accent-4); }
+  #sidebar{ width:340px; flex:none; }
+  #sidebar h3{ font-size:12px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:0 0 12px; }
+  .comment-card{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 13px; margin-bottom:10px; scroll-margin-top:20px; }
+  .comment-card.active{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  @keyframes flashPulse{ 0%,100%{ filter:brightness(1) saturate(1); } 50%{ filter:brightness(0.82) saturate(2.4); } }
+  .hl-rect.flash, mark.annot-mark.flash{ animation: flashPulse .5s ease-in-out 3; }
+  .comment-card .ph{ display:flex; align-items:center; gap:7px; margin-bottom:7px; }
+  .num-pill{ width:18px; height:18px; border-radius:50%; color:#fff; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; font-family:'JetBrains Mono',monospace; }
+  .num-pill.type-audio{ background:var(--accent); }
+  .num-pill.type-text{ background:var(--accent-2); }
+  .num-pill.type-quick{ background:var(--accent-3); }
+  .num-pill.type-ai{ background:var(--accent-4); }
+  .cat-pill{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; padding:2px 8px; border-radius:20px; }
+  .cat-pill.type-audio{ background:var(--accent-soft); color:var(--accent); }
+  .cat-pill.type-text{ background:var(--accent-2-soft); color:var(--accent-2); }
+  .cat-pill.type-quick{ background:var(--accent-3-soft); color:var(--accent-3); }
+  .cat-pill.type-ai{ background:var(--accent-4-soft); color:var(--accent-4); }
+  .loc{ margin-left:auto; font-size:11px; color:var(--muted); }
+  .comment-card .snippet{ font-size:12px; color:#555; font-style:italic; margin-bottom:7px; line-height:1.4; }
+  .comment-card audio{ width:100%; height:34px; }
+  .comment-card .txt{ font-size:13px; line-height:1.55; white-space:pre-wrap; }
+  #summaryBlock{ margin-top:26px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  #summaryBlock h3{ margin:0 0 12px; font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); }
+  .summary-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+  .summary-item{ text-align:center; padding:12px 6px; border-radius:9px; background:var(--paper); }
+  .summary-item .num{ display:block; font-family:'Merriweather',serif; font-size:26px; font-weight:700; color:var(--ink); }
+  .summary-item .lbl{ display:block; font-size:11px; color:var(--muted); margin-top:2px; }
+  .summary-item.type-audio .num{ color:var(--accent); }
+  .summary-item.type-text .num{ color:var(--accent-2); }
+  .summary-item.type-quick .num{ color:var(--accent-3); }
+  .summary-item.type-ai .num{ color:var(--accent-4); }
+  #creditsBlock{ margin-top:18px; text-align:center; font-size:24px; font-weight:600; color:var(--ink); line-height:1.5; }
+  #creditsBlock a{ color:var(--accent); }
+  #connectorOverlay{ position:absolute; top:0; left:0; pointer-events:none; z-index:3; overflow:visible; }
+  .connector{ stroke-width:1.8; stroke-dasharray:5 4; stroke-linecap:round; stroke-linejoin:round; opacity:.62; fill:none; }
+  .connector.type-audio{ stroke:var(--accent); }
+  .connector.type-text{ stroke:var(--accent-2); }
+  .connector.type-quick{ stroke:var(--accent-3); }
+  .connector.type-ai{ stroke:var(--accent-4); }
+  .connector-dot{ opacity:.62; }
+  .connector-dot.type-audio{ fill:var(--accent); }
+  .connector-dot.type-text{ fill:var(--accent-2); }
+  .connector-dot.type-quick{ fill:var(--accent-3); }
+  .connector-dot.type-ai{ fill:var(--accent-4); }
+  @media (max-width:900px){
+    main{ flex-direction:column; } #sidebar{ width:100%; } .summary-grid{ grid-template-columns:repeat(2,1fr); }
+    .page-block{ flex-direction:column; } .comments-side{ width:100%; }
+  }
+</style></head>
+<body>
+<svg id="connectorOverlay"></svg>
+<header>
+  <div class="logo">${logoHTML}</div>
+  <div>
+    <div class="eyebrow">Universidad de San Carlos de Guatemala – Centro Universitario de Occidente</div>
+    <div class="mark">Plataforma de revisión de trabajos académicos CUNOC-USAC</div>
+    <div class="sub">Revisado por ${escapeHtml(reviewerName)} — ${escapeHtml(state.fileName)}</div>
+  </div>
+</header>
+<main>
+  <div id="docCol">
+    ${generalComment ? `<div id="general"><h3>Comentario general</h3><p>${escapeHtml(generalComment)}</p></div>` : ''}
+    ${bodyHTML}
+    ${summaryHTML}
+  </div>
+  ${sidebarHTML}
+</main>
+<script>
+  function flashPair(id){
+    document.querySelectorAll('.comment-card').forEach(c=>c.classList.remove('active'));
+    document.querySelectorAll('.hl-rect, mark.annot-mark').forEach(h=>h.classList.remove('flash'));
+    const card = document.getElementById('comment-'+id);
+    if(card) card.classList.add('active');
+    document.querySelectorAll('.hl-rect[data-annot-id="'+id+'"], mark.annot-mark[data-annot-id="'+id+'"]').forEach(h=> h.classList.add('flash'));
+  }
+  function toggleComment(id){
+    flashPair(id);
+    const card = document.getElementById('comment-'+id);
+    if(card){ card.scrollIntoView({behavior:'smooth', block:'center'}); }
+  }
+  function jumpToHighlight(id){
+    flashPair(id);
+    const h = document.querySelector('.hl-rect[data-annot-id="'+id+'"], mark.annot-mark[data-annot-id="'+id+'"]');
+    if(h){ h.scrollIntoView({behavior:'smooth', block:'center'}); }
+  }
+  document.querySelectorAll('mark.annot-mark, .hl-rect').forEach(m=>{
+    m.addEventListener('click', ()=> toggleComment(m.dataset.annotId));
+  });
+  document.querySelectorAll('.comment-card').forEach(card=>{
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', (e)=>{
+      if(e.target.closest('audio')) return; // don't hijack clicks on the audio player itself
+      jumpToHighlight(card.dataset.annotId);
+    });
+  });
+
+  // Persistent dashed connector between each highlight and its comment card — recomputed
+  // on load/resize since both scroll together as one normal page (no independent panels here).
+  // Routed as a "staircase" (never a diagonal): it drops to the blank strip just below the
+  // highlighted line, travels sideways only inside that blank strip and then outside the
+  // page entirely, so it never crosses over any text — highlighted or not.
+  function drawConnectors(){
+    const svg = document.getElementById('connectorOverlay');
+    if(!svg) return;
+    const w = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth);
+    const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.style.width = w + 'px';
+    svg.style.height = h + 'px';
+    svg.innerHTML = '';
+
+    const items = [];
+    document.querySelectorAll('.comment-card').forEach(card=>{
+      const id = card.dataset.annotId, type = card.dataset.type;
+      const spans = document.querySelectorAll('.hl-rect[data-annot-id="'+id+'"], mark.annot-mark[data-annot-id="'+id+'"]');
+      if(!spans.length) return;
+      const last = spans[spans.length-1];
+      const lr = last.getBoundingClientRect();
+      const cr = card.getBoundingClientRect();
+      const container = last.closest('.page-container') || last.closest('#docxContent');
+      const contRect = (container || last).getBoundingClientRect();
+      items.push({
+        type,
+        // exits right under the highlighted line's own baseline (blank leading space between
+        // lines), not through its middle where the letters are
+        x1: lr.right + window.scrollX,
+        y1: lr.bottom + 2 + window.scrollY,
+        xMid: contRect.right + window.scrollX, // where it leaves the page/content block entirely
+        x2: cr.left + window.scrollX,
+        y2: cr.top + 15 + window.scrollY,
+      });
+    });
+
+    // When two or more highlights sit on the same line of text, their lines would otherwise
+    // start on top of each other — fan them out a few pixels apart instead.
+    const placed = new Array(items.length).fill(false);
+    items.forEach((item, i)=>{
+      if(placed[i]) return;
+      const group = [i];
+      for(let j=i+1; j<items.length; j++){
+        if(!placed[j] && Math.abs(items[j].y1 - item.y1) < 14 && Math.abs(items[j].x1 - item.x1) < 4){
+          group.push(j);
+        }
+      }
+      group.forEach(gi=> placed[gi] = true);
+      if(group.length > 1){
+        const spacing = 7;
+        group.forEach((gi, k)=>{
+          items[gi].y1 += (k - (group.length-1)/2) * spacing;
+        });
+      }
+    });
+
+    items.forEach(({type,x1,y1,xMid,x2,y2})=>{
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      // 1) short hop down to the blank strip below the line, 2) sideways in that blank strip
+      // and on out past the page edge, 3) down/up to the card's height, 4) in to the card
+      path.setAttribute('d', 'M '+x1+' '+y1+' L '+xMid+' '+y1+' L '+xMid+' '+y2+' L '+x2+' '+y2);
+      path.setAttribute('class', 'connector type-'+type);
+      svg.appendChild(path);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx', x1); dot.setAttribute('cy', y1); dot.setAttribute('r', 2.3);
+      dot.setAttribute('class', 'connector-dot type-'+type);
+      svg.appendChild(dot);
+    });
+  }
+
+  // Spread each page's (or, for Word, each paragraph's) comment cards down the sidebar column
+  // so a card roughly lines up with how far down the content its highlight sits (top -> near
+  // top of column, etc.), instead of all cards bunching at the top regardless of position.
+  // This also keeps the connector lines short and legible instead of long diagonals.
+  function positionCardsInColumn(refHeight, commentsSide, cards, topOffset){
+    topOffset = topOffset || 0;
+    // measure natural heights before switching to absolute positioning
+    const heights = cards.map(c => c.getBoundingClientRect().height);
+    commentsSide.style.position = 'relative';
+    let prevBottom = topOffset;
+    const gap = 14;
+    cards.forEach((card, i)=>{
+      const pct = parseFloat(card.dataset.topPct || '0') || 0;
+      const idealTop = topOffset + (pct/100) * refHeight;
+      const top = Math.max(idealTop, prevBottom + (i===0 ? 0 : gap));
+      card.style.position = 'absolute';
+      card.style.top = top + 'px';
+      card.style.left = '0';
+      card.style.right = '0';
+      prevBottom = top + heights[i];
+    });
+    commentsSide.style.minHeight = Math.max(refHeight + topOffset, prevBottom) + 'px';
+  }
+
+  function layoutPageComments(){
+    // PDF: one comments column per page-block
+    document.querySelectorAll('.page-block').forEach(block=>{
+      const pageContainer = block.querySelector('.page-container');
+      const commentsSide = block.querySelector('.comments-side');
+      if(!pageContainer || !commentsSide) return;
+      const cards = Array.from(commentsSide.querySelectorAll('.comment-card'));
+      if(!cards.length) return;
+      positionCardsInColumn(pageContainer.getBoundingClientRect().height, commentsSide, cards);
+    });
+    // Word: single flowing document + single global sidebar, positioned by paragraph %
+    const docxContent = document.getElementById('docxContent');
+    const sidebar = document.getElementById('sidebar');
+    if(docxContent && sidebar){
+      const cards = Array.from(sidebar.querySelectorAll('.comment-card'));
+      if(cards.length){
+        // offset by the "Todos los comentarios" heading's own height so the first card
+        // doesn't land on top of it
+        const heading = sidebar.querySelector('h3');
+        const topOffset = heading ? heading.getBoundingClientRect().height + 14 : 0;
+        positionCardsInColumn(docxContent.getBoundingClientRect().height, sidebar, cards, topOffset);
+      }
+    }
+  }
+
+  function layoutAndConnect(){ layoutPageComments(); drawConnectors(); }
+
+  // Belt-and-suspenders redraw: web fonts and base64 page images can finish settling
+  // slightly after 'load' fires, which shifts positions just enough to throw the lines off.
+  // We redraw several times over the first couple seconds so it always lands correctly.
+  function scheduleRedraws(){
+    layoutAndConnect();
+    requestAnimationFrame(()=> requestAnimationFrame(layoutAndConnect));
+    [150, 400, 900, 1600].forEach(ms => setTimeout(layoutAndConnect, ms));
+  }
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(layoutAndConnect); }
+  window.addEventListener('load', scheduleRedraws);
+  window.addEventListener('resize', layoutAndConnect);
+  document.addEventListener('DOMContentLoaded', scheduleRedraws);
+<\/script>
+</body></html>`;
+
+  return exportDoc;
+}
+
+/* ================================================================
+   GOOGLE DRIVE — sign in with the professor's own Google account
+   and upload the exported review straight into a Drive folder.
+   Requires a one-time OAuth Client ID + API key from the professor
+   (see the settings modal) since this app has no backend of its own.
+   ================================================================ */
+let gapiLoaded = false, gisLoaded = false, tokenClient = null, driveAccessToken = null;
+
+function loadScript(src){
+  return new Promise((resolve, reject)=>{
+    if(document.querySelector(`script[src="${src}"]`)){ resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.async = true; s.defer = true;
+    s.onload = resolve; s.onerror = ()=> reject(new Error('No se pudo cargar '+src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureGoogleLoaded(){
+  if(!gisLoaded){ await loadScript('https://accounts.google.com/gsi/client'); gisLoaded = true; }
+  if(!gapiLoaded){
+    await loadScript('https://apis.google.com/js/api.js');
+    await new Promise(resolve=> gapi.load('client:picker', resolve));
+    gapiLoaded = true;
+  }
+}
+
+/* ---------------- hosted-mode Google credentials ----------------
+   If this file is published at a fixed web address (e.g. GitHub Pages), fill these in ONCE
+   after registering that address in Google Cloud Console — see the "Publicar y conectar con
+   Google" guide. Once set, every person who opens this hosted page just clicks "Iniciar sesión
+   con Google", no per-user setup required. Leave both blank to keep the original behavior
+   (each person pastes their own Client ID / API key), which still works fine for local use. */
+const HOSTED_GOOGLE_CLIENT_ID = '';
+const HOSTED_GOOGLE_API_KEY = '';
+const IS_HOSTED_MODE = !!(HOSTED_GOOGLE_CLIENT_ID && HOSTED_GOOGLE_API_KEY);
+if(IS_HOSTED_MODE){ $('#btnDriveSettings').style.display = 'none'; }
+
+async function getDriveConfig(){
+  if(IS_HOSTED_MODE) return { clientId: HOSTED_GOOGLE_CLIENT_ID, apiKey: HOSTED_GOOGLE_API_KEY };
+  return await storageGet('gdrive:config');
+}
+
+async function ensureGoogleAuth(){
+  const cfg = await getDriveConfig();
+  if(!cfg || !cfg.clientId || !cfg.apiKey){
+    openDriveSettings();
+    toast('Primero conecte su cuenta de Google');
+    return null;
+  }
+  await ensureGoogleLoaded();
+  await gapi.client.init({ apiKey: cfg.apiKey });
+
+  if(driveAccessToken) return cfg;
+
+  return new Promise((resolve)=>{
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: cfg.clientId,
+      scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
+      callback: (resp)=>{
+        if(resp && resp.access_token){
+          driveAccessToken = resp.access_token;
+          updateDriveStatus(true);
+          resolve(cfg);
+        } else {
+          toast('No se pudo iniciar sesión con Google');
+          resolve(null);
+        }
+      },
+    });
+    tokenClient.requestAccessToken({ prompt: driveAccessToken ? '' : 'consent' });
+  });
+}
+
+function pickDriveFolder(apiKey){
+  return new Promise((resolve)=>{
+    try{
+      const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+        .setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder');
+      const picker = new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(driveAccessToken)
+        .setDeveloperKey(apiKey)
+        .setTitle('Elija la carpeta donde guardar la revisión')
+        .setCallback((data)=>{
+          if(data.action === google.picker.Action.PICKED){
+            resolve(data.docs[0].id);
+          } else if(data.action === google.picker.Action.CANCEL){
+            resolve(null);
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    }catch(e){ console.error(e); resolve(null); }
+  });
+}
+
+async function uploadBlobToDrive(blob, filename, folderId){
+  const metadata = { name: filename, mimeType: 'text/html' };
+  if(folderId) metadata.parents = [folderId];
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type:'application/json' }));
+  form.append('file', blob);
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+    method:'POST',
+    headers: { Authorization: 'Bearer ' + driveAccessToken },
+    body: form,
+  });
+  if(!res.ok){ throw new Error('Drive respondió ' + res.status); }
+  return res.json();
+}
+
+/* ---------------- open a student's submission directly from Drive ----------------
+   Uses the same drive.file scope already granted for saving — picking a file through the
+   Google Picker grants access to that specific file, without ever asking for broader access
+   to the professor's whole Drive. */
+function pickDriveFile(apiKey){
+  return new Promise((resolve)=>{
+    try{
+      const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+        .setIncludeFolders(true)
+        .setMimeTypes('application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.google-apps.document');
+      const picker = new google.picker.PickerBuilder()
+        .addView(view)
+        .setOAuthToken(driveAccessToken)
+        .setDeveloperKey(apiKey)
+        .setTitle('Elija el trabajo que quiere revisar (PDF o Word)')
+        .setCallback((data)=>{
+          if(data.action === google.picker.Action.PICKED){ resolve(data.docs[0]); }
+          else if(data.action === google.picker.Action.CANCEL){ resolve(null); }
+        })
+        .build();
+      picker.setVisible(true);
+    }catch(e){ console.error(e); resolve(null); }
+  });
+}
+async function downloadDriveFile(doc){
+  let url, mimeType, fileName = doc.name;
+  if(doc.mimeType === 'application/vnd.google-apps.document'){
+    // native Google Docs aren't a real file to download — they have to be exported first
+    mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    url = `https://www.googleapis.com/drive/v3/files/${doc.id}/export?mimeType=${encodeURIComponent(mimeType)}`;
+    if(!/\.docx$/i.test(fileName)) fileName += '.docx';
+  } else {
+    mimeType = doc.mimeType;
+    url = `https://www.googleapis.com/drive/v3/files/${doc.id}?alt=media`;
+  }
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
+  if(!res.ok) throw new Error('Drive respondió ' + res.status);
+  const blob = await res.blob();
+  return new File([blob], fileName, { type: mimeType });
+}
+
+$('#btnOpenDrive').addEventListener('click', openFromDrive);
+async function openFromDrive(){
+  const cfg = await ensureGoogleAuth();
+  if(!cfg) return;
+  const doc = await pickDriveFile(cfg.apiKey);
+  if(!doc) return;
+  toast('Descargando desde Drive…');
+  try{
+    const file = await downloadDriveFile(doc);
+    await handleFile(file);
+  }catch(err){
+    console.error(err);
+    toast('No se pudo abrir ese archivo desde Drive.');
+  }
+}
+
+$('#btnDrive').addEventListener('click', driveExport);
+async function driveExport(){
+  const cfg = await ensureGoogleAuth();
+  if(!cfg) return;
+  toast('Generando y subiendo a Drive…');
+  try{
+    const html = await buildExportHTML();
+    const blob = new Blob([html], { type:'text/html' });
+    const base = state.fileName.replace(/\.(pdf|docx)$/i,'');
+    const filename = `${base}_revisado.html`;
+    const folderId = await pickDriveFolder(cfg.apiKey);
+    const file = await uploadBlobToDrive(blob, filename, folderId);
+    toast('Guardado en Google Drive ✓');
+    if(file.webViewLink) window.open(file.webViewLink, '_blank');
+  }catch(err){
+    console.error(err);
+    toast('No se pudo subir a Drive. Revise la configuración e inténtelo de nuevo.');
+  }
+}
+
+/* ---- settings modal ---- */
+function openDriveSettings(){ $('#driveModalBackdrop').style.display = 'flex'; refreshDriveSettingsUI(); }
+async function refreshDriveSettingsUI(){
+  const cfg = await getDriveConfig();
+  $('#driveClientId').value = cfg?.clientId || '';
+  $('#driveApiKey').value = cfg?.apiKey || '';
+  updateDriveStatus(!!driveAccessToken);
+}
+function updateDriveStatus(signedIn){
+  const box = $('#driveStatus');
+  if(signedIn){ box.textContent = 'Cuenta de Google conectada para esta sesión.'; box.classList.remove('signed-out'); }
+  else { box.textContent = 'Aún no se ha conectado ninguna cuenta.'; box.classList.add('signed-out'); }
+}
+$('#btnDriveSettings').addEventListener('click', openDriveSettings);
+$('#driveModalClose').addEventListener('click', ()=> $('#driveModalBackdrop').style.display='none');
+$('#driveModalSave').addEventListener('click', async ()=>{
+  const clientId = $('#driveClientId').value.trim();
+  const apiKey = $('#driveApiKey').value.trim();
+  if(!clientId || !apiKey){ toast('Complete ambos campos para continuar'); return; }
+  driveAccessToken = null; // force re-auth if credentials changed
+  await storageSet('gdrive:config', { clientId, apiKey });
+  toast('Configuración de Drive guardada');
+  $('#driveModalBackdrop').style.display = 'none';
+});
+
+/* ================================================================
+   SEND BY EMAIL — via Gmail API, using the same Google sign-in as
+   Drive. mailto: links can't carry attachments, so this sends the
+   review as a real attachment from the professor's own account.
+   ================================================================ */
+$('#btnEmail').addEventListener('click', openEmailModal);
+async function openEmailModal(){
+  const cfg = await ensureGoogleAuth();
+  if(!cfg) return;
+  $('#emailTo').value = '';
+  $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Ábralo en su navegador: cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\nM.Sc. Edson Vitelio Amézquita Cutz\nPsicólogo — Universidad de San Carlos de Guatemala`;
+  $('#emailModalBackdrop').style.display = 'flex';
+}
+$('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
+
+function toBase64Url(str){
+  return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function encodeSubject(subject){
+  return '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subject))) + '?=';
+}
+function buildMimeMessage({ to, subject, bodyText, filename, attachmentText }){
+  const boundary = 'usacRevision' + Date.now();
+  const attachmentB64 = btoa(unescape(encodeURIComponent(attachmentText)));
+  const wrapped = attachmentB64.match(/.{1,76}/g).join('\r\n');
+  const parts = [
+    `To: ${to}`,
+    `Subject: ${encodeSubject(subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '',
+    bodyText,
+    '',
+    `--${boundary}`,
+    `Content-Type: text/html; name="${filename}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${filename}"`,
+    '',
+    wrapped,
+    '',
+    `--${boundary}--`,
+  ];
+  return parts.join('\r\n');
+}
+
+$('#emailSend').addEventListener('click', sendReviewEmail);
+async function sendReviewEmail(){
+  const to = $('#emailTo').value.trim();
+  if(!to){ toast('Escriba al menos un correo de destino'); return; }
+  const cfg = await ensureGoogleAuth();
+  if(!cfg) return;
+
+  toast('Generando y enviando por correo…');
+  try{
+    const html = await buildExportHTML();
+    if(html.length > 20*1024*1024){
+      toast('El archivo es demasiado grande para enviarlo por correo (límite ~20MB). Usa Drive en su lugar.');
+      return;
+    }
+    const base = state.fileName.replace(/\.(pdf|docx)$/i,'');
+    const filename = `${base}_revisado.html`;
+    const mime = buildMimeMessage({
+      to,
+      subject: $('#emailSubject').value.trim() || `Revisión — ${state.fileName}`,
+      bodyText: $('#emailBody').value,
+      filename,
+      attachmentText: html,
+    });
+    const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: toBase64Url(mime) }),
+    });
+    if(!res.ok){ throw new Error('Gmail respondió ' + res.status); }
+    toast('Correo enviado ✓');
+    $('#emailModalBackdrop').style.display = 'none';
+  }catch(err){
+    console.error(err);
+    toast('No se pudo enviar el correo. Revise la configuración e inténtelo de nuevo.');
+  }
+}
+</script>
+</body>
+</html>
