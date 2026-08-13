@@ -2119,8 +2119,8 @@ async function ensureGoogleLoaded(){
    Google" guide. Once set, every person who opens this hosted page just clicks "Iniciar sesión
    con Google", no per-user setup required. Leave both blank to keep the original behavior
    (each person pastes their own Client ID / API key), which still works fine for local use. */
-const HOSTED_GOOGLE_CLIENT_ID = '751308968766-pvedalgulqsnuttdl2cu8g275k3525p4.apps.googleusercontent.com';
-const HOSTED_GOOGLE_API_KEY = 'AIzaSyCocTnh82VQW_lmYMaJBBbUcjxgdxjACZA';
+const HOSTED_GOOGLE_CLIENT_ID = '';
+const HOSTED_GOOGLE_API_KEY = '';
 const IS_HOSTED_MODE = !!(HOSTED_GOOGLE_CLIENT_ID && HOSTED_GOOGLE_API_KEY);
 if(IS_HOSTED_MODE){ $('#btnDriveSettings').style.display = 'none'; }
 
@@ -2160,15 +2160,25 @@ async function ensureGoogleAuth(){
   });
 }
 
-function pickDriveFolder(apiKey){
+// setAppId is required for the drive.file scope to actually grant access to whatever the
+// person picks — without it, a file can be *selected* in the Picker but downloading it
+// afterward fails with 404 (Drive treats it as never having been authorized for the app).
+// The Picker expects the numeric Google Cloud project number, which is the leading digits
+// of the OAuth Client ID (before the first "-"), so we derive it automatically.
+function driveAppIdFromClientId(clientId){
+  const m = /^(\d+)-/.exec(clientId || '');
+  return m ? m[1] : '';
+}
+
+function pickDriveFolder(cfg){
   return new Promise((resolve)=>{
     try{
       const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
         .setIncludeFolders(true).setSelectFolderEnabled(true).setMimeTypes('application/vnd.google-apps.folder');
-      const picker = new google.picker.PickerBuilder()
+      const builder = new google.picker.PickerBuilder()
         .addView(view)
         .setOAuthToken(driveAccessToken)
-        .setDeveloperKey(apiKey)
+        .setDeveloperKey(cfg.apiKey)
         .setTitle('Elija la carpeta donde guardar la revisión')
         .setCallback((data)=>{
           if(data.action === google.picker.Action.PICKED){
@@ -2176,9 +2186,10 @@ function pickDriveFolder(apiKey){
           } else if(data.action === google.picker.Action.CANCEL){
             resolve(null);
           }
-        })
-        .build();
-      picker.setVisible(true);
+        });
+      const appId = driveAppIdFromClientId(cfg.clientId);
+      if(appId) builder.setAppId(appId);
+      builder.build().setVisible(true);
     }catch(e){ console.error(e); resolve(null); }
   });
 }
@@ -2202,23 +2213,24 @@ async function uploadBlobToDrive(blob, filename, folderId){
    Uses the same drive.file scope already granted for saving — picking a file through the
    Google Picker grants access to that specific file, without ever asking for broader access
    to the professor's whole Drive. */
-function pickDriveFile(apiKey){
+function pickDriveFile(cfg){
   return new Promise((resolve)=>{
     try{
       const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
         .setIncludeFolders(true)
         .setMimeTypes('application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.google-apps.document');
-      const picker = new google.picker.PickerBuilder()
+      const builder = new google.picker.PickerBuilder()
         .addView(view)
         .setOAuthToken(driveAccessToken)
-        .setDeveloperKey(apiKey)
+        .setDeveloperKey(cfg.apiKey)
         .setTitle('Elija el trabajo que quiere revisar (PDF o Word)')
         .setCallback((data)=>{
           if(data.action === google.picker.Action.PICKED){ resolve(data.docs[0]); }
           else if(data.action === google.picker.Action.CANCEL){ resolve(null); }
-        })
-        .build();
-      picker.setVisible(true);
+        });
+      const appId = driveAppIdFromClientId(cfg.clientId);
+      if(appId) builder.setAppId(appId);
+      builder.build().setVisible(true);
     }catch(e){ console.error(e); resolve(null); }
   });
 }
@@ -2243,7 +2255,7 @@ $('#btnOpenDrive').addEventListener('click', openFromDrive);
 async function openFromDrive(){
   const cfg = await ensureGoogleAuth();
   if(!cfg) return;
-  const doc = await pickDriveFile(cfg.apiKey);
+  const doc = await pickDriveFile(cfg);
   if(!doc) return;
   toast('Descargando desde Drive…');
   try{
@@ -2265,7 +2277,7 @@ async function driveExport(){
     const blob = new Blob([html], { type:'text/html' });
     const base = state.fileName.replace(/\.(pdf|docx)$/i,'');
     const filename = `${base}_revisado.html`;
-    const folderId = await pickDriveFolder(cfg.apiKey);
+    const folderId = await pickDriveFolder(cfg);
     const file = await uploadBlobToDrive(blob, filename, folderId);
     toast('Guardado en Google Drive ✓');
     if(file.webViewLink) window.open(file.webViewLink, '_blank');
