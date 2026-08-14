@@ -45,12 +45,15 @@
   #app{ display:flex; flex-direction:column; height:100vh; }
 
   header{
-    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    display:flex; flex-direction:column; gap:10px;
     padding:10px 20px;
     border-bottom:1px solid var(--line);
     background:#fff;
     z-index:40;
   }
+  .header-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .header-row-actions{ padding-left:58px; } /* lines up under the brand text, past the logo */
+  .header-spacer{ flex:1 1 auto; }
   .logo-slot{
     width:42px; height:42px; border-radius:50%; flex:none; cursor:pointer; position:relative;
     border:1.5px solid var(--line); overflow:hidden; background:#fff;
@@ -347,56 +350,64 @@
 <div id="app">
 
   <header>
-    <div class="logo-slot" id="logoSlot" title="Haga clic para subir el escudo/logo de su institución">
-      <svg id="logoDefault" viewBox="0 0 48 48" width="100%" height="100%">
-        <circle cx="24" cy="24" r="22" fill="#f4f7fb" stroke="#1c4a86" stroke-width="1.6"/>
-        <circle cx="24" cy="24" r="17.5" fill="none" stroke="#b3790f" stroke-width="1"/>
-        <path d="M14 20l10-5 10 5-10 5-10-5z" fill="#1c4a86"/>
-        <path d="M14 20v6c0 2 4 4.5 10 4.5s10-2.5 10-4.5v-6" fill="none" stroke="#1c4a86" stroke-width="1.4"/>
-        <line x1="34" y1="20" x2="34" y2="27" stroke="#b3790f" stroke-width="1.4"/>
-      </svg>
-      <img id="logoImg" style="display:none;" alt="Logo institucional">
-      <div class="edit-hint">Subir<br>logo</div>
+    <div class="header-row header-row-top">
+      <div class="logo-slot" id="logoSlot" title="Haga clic para subir el escudo/logo de su institución">
+        <svg id="logoDefault" viewBox="0 0 48 48" width="100%" height="100%">
+          <circle cx="24" cy="24" r="22" fill="#f4f7fb" stroke="#1c4a86" stroke-width="1.6"/>
+          <circle cx="24" cy="24" r="17.5" fill="none" stroke="#b3790f" stroke-width="1"/>
+          <path d="M14 20l10-5 10 5-10 5-10-5z" fill="#1c4a86"/>
+          <path d="M14 20v6c0 2 4 4.5 10 4.5s10-2.5 10-4.5v-6" fill="none" stroke="#1c4a86" stroke-width="1.4"/>
+          <line x1="34" y1="20" x2="34" y2="27" stroke="#b3790f" stroke-width="1.4"/>
+        </svg>
+        <img id="logoImg" style="display:none;" alt="Logo institucional">
+        <div class="edit-hint">Subir<br>logo</div>
+      </div>
+      <input type="file" id="logoInput" accept="image/*">
+      <div class="brand">
+        <span class="eyebrow">Universidad de San Carlos de Guatemala – Centro Universitario de Occidente</span>
+        <span class="mark">Plataforma de revisión de trabajos académicos CUNOC-USAC</span>
+        <span class="sub" id="reviewerSub">Revisor: M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo</span>
+      </div>
+      <span class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText">Sin documento</span></span>
     </div>
-    <input type="file" id="logoInput" accept="image/*">
-    <div class="brand">
-      <span class="eyebrow">Universidad de San Carlos de Guatemala – Centro Universitario de Occidente</span>
-      <span class="mark">Plataforma de revisión de trabajos académicos CUNOC-USAC</span>
-      <span class="sub" id="reviewerSub">Revisor: M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo</span>
+    <div class="header-row header-row-actions">
+      <button class="btn ghost" id="btnNewDoc" style="display:none;">Nuevo documento</button>
+      <button class="btn ghost" id="btnReviewer" disabled title="Cambiar el nombre del revisor que aparece en el documento final">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/></svg>
+        Revisor
+      </button>
+      <button class="btn" id="btnSave" disabled title="Guardar cambios manualmente">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4M8 14h8v6H8z"/></svg>
+        Guardar
+      </button>
+      <button class="btn" id="btnUpload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M12 4l-5 5M12 4l5 5"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+        Subir trabajo
+      </button>
+      <button class="btn" id="btnOpenDrive" title="Abrir un trabajo directamente desde Google Drive">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
+        Abrir desde Drive
+      </button>
+      <span class="header-spacer"></span>
+      <button class="btn primary" id="btnExport" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+        Exportar
+      </button>
+      <button class="btn" id="btnEmail" disabled title="Enviar la revisión por correo electrónico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        Enviar por correo
+      </button>
+      <button class="btn" id="btnDrive" disabled title="Guardar la revisión exportada en una carpeta de Google Drive">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
+        Guardar en Drive
+      </button>
+      <button class="btn ghost" id="btnSwitchAccount" style="display:none;" title="Cambiar la cuenta de Google conectada">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/><path d="M19 3l2 2-2 2M21 5h-6"/></svg>
+      </button>
+      <button class="btn ghost" id="btnDriveSettings" title="Configurar conexión con Google (Drive y correo)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.2a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.2a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.2a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.2a1.7 1.7 0 00-1.6 1z"/></svg>
+      </button>
     </div>
-    <span class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText">Sin documento</span></span>
-    <button class="btn ghost" id="btnNewDoc" style="display:none;">Nuevo documento</button>
-    <button class="btn ghost" id="btnReviewer" disabled title="Cambiar el nombre del revisor que aparece en el documento final">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.5 7-5.5s5.8 1.9 7 5.5"/></svg>
-      Revisor
-    </button>
-    <button class="btn" id="btnSave" disabled title="Guardar cambios manualmente">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4M8 14h8v6H8z"/></svg>
-      Guardar
-    </button>
-    <button class="btn" id="btnUpload">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M12 4l-5 5M12 4l5 5"/><path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
-      Subir trabajo
-    </button>
-    <button class="btn" id="btnOpenDrive" title="Abrir un trabajo directamente desde Google Drive">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
-      Abrir desde Drive
-    </button>
-    <button class="btn primary" id="btnExport" disabled>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M12 15l-4-4M12 15l4-4"/><path d="M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
-      Exportar
-    </button>
-    <button class="btn" id="btnEmail" disabled title="Enviar la revisión por correo electrónico">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-      Enviar por correo
-    </button>
-    <button class="btn" id="btnDrive" disabled title="Guardar la revisión exportada en una carpeta de Google Drive">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
-      Guardar en Drive
-    </button>
-    <button class="btn ghost" id="btnDriveSettings" title="Configurar conexión con Google (Drive y correo)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6V21a2 2 0 11-4 0v-.2a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.6-1H3a2 2 0 110-4h.2a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.6V3a2 2 0 114 0v.2a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.6 1H21a2 2 0 110 4h-.2a1.7 1.7 0 00-1.6 1z"/></svg>
-    </button>
     <input type="file" id="fileInput" accept=".pdf,.docx">
   </header>
 
@@ -2119,8 +2130,8 @@ async function ensureGoogleLoaded(){
    Google" guide. Once set, every person who opens this hosted page just clicks "Iniciar sesión
    con Google", no per-user setup required. Leave both blank to keep the original behavior
    (each person pastes their own Client ID / API key), which still works fine for local use. */
-const HOSTED_GOOGLE_CLIENT_ID = '751308968766-pvedalgulqsnuttdl2cu8g275k3525p4.apps.googleusercontent.com';
-const HOSTED_GOOGLE_API_KEY = 'AIzaSyDM4Tza146vs2fNrmbCed3WS7xRO6gN6NI';
+const HOSTED_GOOGLE_CLIENT_ID = '';
+const HOSTED_GOOGLE_API_KEY = '';
 const IS_HOSTED_MODE = !!(HOSTED_GOOGLE_CLIENT_ID && HOSTED_GOOGLE_API_KEY);
 if(IS_HOSTED_MODE){ $('#btnDriveSettings').style.display = 'none'; }
 
@@ -2141,6 +2152,10 @@ async function ensureGoogleAuth(){
 
   if(driveAccessToken) return cfg;
 
+  return requestGoogleToken(cfg, 'consent');
+}
+
+function requestGoogleToken(cfg, promptMode){
   return new Promise((resolve)=>{
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: cfg.clientId,
@@ -2149,6 +2164,7 @@ async function ensureGoogleAuth(){
         if(resp && resp.access_token){
           driveAccessToken = resp.access_token;
           updateDriveStatus(true);
+          $('#btnSwitchAccount').style.display = 'inline-flex';
           resolve(cfg);
         } else {
           toast('No se pudo iniciar sesión con Google');
@@ -2156,9 +2172,19 @@ async function ensureGoogleAuth(){
         }
       },
     });
-    tokenClient.requestAccessToken({ prompt: driveAccessToken ? '' : 'consent' });
+    tokenClient.requestAccessToken({ prompt: promptMode });
   });
 }
+
+async function switchGoogleAccount(){
+  const cfg = await getDriveConfig();
+  if(!cfg || !cfg.clientId || !cfg.apiKey) return;
+  await ensureGoogleLoaded();
+  await gapi.client.init({ apiKey: cfg.apiKey });
+  driveAccessToken = null;
+  await requestGoogleToken(cfg, 'select_account');
+}
+$('#btnSwitchAccount').addEventListener('click', switchGoogleAccount);
 
 // setAppId is required for the drive.file scope to actually grant access to whatever the
 // person picks — without it, a file can be *selected* in the Picker but downloading it
@@ -2200,7 +2226,9 @@ async function uploadBlobToDrive(blob, filename, folderId){
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type:'application/json' }));
   form.append('file', blob);
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+  // webContentLink (direct download) instead of webViewLink (Drive's in-browser preview,
+  // which strips JavaScript and would show the export broken, not interactive)
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink', {
     method:'POST',
     headers: { Authorization: 'Bearer ' + driveAccessToken },
     body: form,
@@ -2279,8 +2307,9 @@ async function driveExport(){
     const filename = `${base}_revisado.html`;
     const folderId = await pickDriveFolder(cfg);
     const file = await uploadBlobToDrive(blob, filename, folderId);
-    toast('Guardado en Google Drive ✓');
-    if(file.webViewLink) window.open(file.webViewLink, '_blank');
+    toast('Guardado en Google Drive ✓ — comparta el enlace indicando que deben descargarlo, no solo verlo en Drive');
+    const link = file.webContentLink || file.webViewLink;
+    if(link) window.open(link, '_blank');
   }catch(err){
     console.error(err);
     toast('No se pudo subir a Drive. Revise la configuración e inténtelo de nuevo.');
@@ -2307,6 +2336,7 @@ $('#driveModalSave').addEventListener('click', async ()=>{
   const apiKey = $('#driveApiKey').value.trim();
   if(!clientId || !apiKey){ toast('Complete ambos campos para continuar'); return; }
   driveAccessToken = null; // force re-auth if credentials changed
+  $('#btnSwitchAccount').style.display = 'none';
   await storageSet('gdrive:config', { clientId, apiKey });
   toast('Configuración de Drive guardada');
   $('#driveModalBackdrop').style.display = 'none';
@@ -2321,9 +2351,10 @@ $('#btnEmail').addEventListener('click', openEmailModal);
 async function openEmailModal(){
   const cfg = await ensureGoogleAuth();
   if(!cfg) return;
+  const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Ábralo en su navegador: cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\nM.Sc. Edson Vitelio Amézquita Cutz\nPsicólogo — Universidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Ábralo en su navegador: cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
