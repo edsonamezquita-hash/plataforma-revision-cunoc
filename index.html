@@ -308,6 +308,29 @@
 
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 
+  .comment-suggestions{
+    display:none; position:absolute; left:0; right:0; top:100%; margin-top:2px; z-index:20;
+    background:#fff; border:1px solid var(--line); border-radius:9px; box-shadow:var(--shadow);
+    max-height:200px; overflow-y:auto; padding:4px;
+  }
+  .comment-suggestions .suggestion-item{
+    display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:6px; cursor:pointer;
+  }
+  .comment-suggestions .suggestion-item:hover,
+  .comment-suggestions .suggestion-item.active{ background:var(--panel); }
+  .comment-suggestions .suggestion-text{ flex:1; font-size:12.5px; line-height:1.4; }
+  .comment-suggestions .suggestion-del{
+    flex:none; background:none; border:none; color:var(--muted); font-size:15px; line-height:1; cursor:pointer; padding:2px 4px;
+  }
+  .comment-suggestions .suggestion-del:hover{ color:var(--accent); }
+  .comment-suggestions .suggestion-empty{ padding:8px 9px; font-size:12px; color:var(--muted); font-style:italic; }
+
+  .freq-toggle{
+    display:inline-flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer;
+    color:var(--accent-3); font-size:12px; font-weight:600; padding:2px 0; font-family:'PT Sans',sans-serif;
+  }
+  .freq-toggle:hover{ text-decoration:underline; }
+
   .cat-swatch{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
 
   .drive-hint{ font-size:12px; color:var(--muted); line-height:1.6; background:var(--panel); border-radius:8px; padding:10px 12px; margin-bottom:14px; }
@@ -502,11 +525,16 @@
   <div class="modal">
     <h2>Comentario escrito</h2>
     <p class="quote" id="textQuote"></p>
-    <div class="field" style="margin-bottom:6px;">
+    <div class="field" style="margin-bottom:2px; position:relative;">
       <label>Comentario</label>
-      <textarea id="textBody" placeholder="Escriba su observación para el estudiante…" autofocus></textarea>
+      <textarea id="textBody" placeholder="Escriba su observación para el estudiante…" autofocus autocomplete="off"></textarea>
+      <div id="commentSuggestions" class="comment-suggestions"></div>
     </div>
-    <p style="font-size:11px;color:var(--muted);margin:0 0 4px;">Podrá asignarle una categoría después, al hacer clic sobre el comentario · Ctrl+Enter para guardar</p>
+    <button type="button" class="freq-toggle" id="btnSaveFrequent" title="Guardar este texto para reutilizarlo en otras revisiones">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg>
+      Guardar como comentario frecuente
+    </button>
+    <p style="font-size:11px;color:var(--muted);margin:6px 0 4px;">Tab completa la sugerencia resaltada · Podrá asignarle una categoría después, al hacer clic sobre el comentario · Ctrl+Enter para guardar</p>
     <div class="modal-actions">
       <button class="btn ghost" id="textCancel">Cancelar</button>
       <button class="btn primary" id="textSave">Guardar comentario</button>
@@ -1236,10 +1264,12 @@ function openTextModal(){
   $('#textBody').value = '';
   $('#textModalBackdrop').style.display = 'flex';
   hideToolbar();
+  renderCommentSuggestions('');
   setTimeout(()=> $('#textBody').focus(), 50);
 }
 $('#textCancel').addEventListener('click', ()=>{
   $('#textModalBackdrop').style.display = 'none';
+  $('#commentSuggestions').style.display = 'none';
   discardPending();
 });
 $('#textSave').addEventListener('click', saveTextComment);
@@ -1250,8 +1280,103 @@ async function saveTextComment(){
   const annotation = { id, type:'text', category:null, content: body, createdAt: new Date().toISOString() };
   await finalizeAnnotation(annotation);
   $('#textModalBackdrop').style.display = 'none';
+  $('#commentSuggestions').style.display = 'none';
   toast('Comentario guardado — puede etiquetarlo haciendo clic en él');
 }
+
+/* ---------------- frequent text comments (comment bank, like Classroom's) ----------------
+   Saved globally (not tied to any one document) so the same phrases suggest themselves
+   across every review, for every document the reviewer opens. */
+async function getFrequentComments(){
+  return (await storageGet('freqcomments:list')) || [];
+}
+async function addFrequentComment(text){
+  text = (text||'').trim();
+  if(!text){ toast('Escriba el comentario antes de guardarlo como frecuente.'); return; }
+  const list = await getFrequentComments();
+  if(list.some(c => c.text === text)){ toast('Ese comentario ya estaba guardado como frecuente.'); return; }
+  list.unshift({ id:'f'+Date.now()+Math.floor(Math.random()*1000), text });
+  if(list.length > 50) list.length = 50; // keep the bank from growing without bound
+  await storageSet('freqcomments:list', list);
+  toast('Guardado como comentario frecuente ⭐');
+  renderCommentSuggestions($('#textBody').value);
+}
+async function removeFrequentComment(id){
+  const list = await getFrequentComments();
+  await storageSet('freqcomments:list', list.filter(c => c.id !== id));
+}
+let currentSuggestionMatches = [];
+let activeSuggestionIndex = -1;
+
+async function renderCommentSuggestions(query){
+  const box = $('#commentSuggestions');
+  const list = await getFrequentComments();
+  if(!list.length){ box.style.display = 'none'; box.innerHTML = ''; currentSuggestionMatches = []; activeSuggestionIndex = -1; return; }
+  const q = (query||'').trim().toLowerCase();
+  const matches = (q ? list.filter(c => c.text.toLowerCase().includes(q)) : list).slice(0, 6);
+  currentSuggestionMatches = matches;
+  activeSuggestionIndex = matches.length ? 0 : -1; // first suggestion starts highlighted, ready for Tab
+  if(!matches.length){
+    box.innerHTML = '<div class="suggestion-empty">Sin comentarios frecuentes que coincidan</div>';
+    box.style.display = 'block';
+    return;
+  }
+  paintSuggestionList();
+  box.style.display = 'block';
+}
+function paintSuggestionList(){
+  const box = $('#commentSuggestions');
+  box.innerHTML = currentSuggestionMatches.map((c,i) => `
+    <div class="suggestion-item${i===activeSuggestionIndex?' active':''}" data-id="${c.id}" data-index="${i}">
+      <span class="suggestion-text">${escapeHtml(truncate(c.text, 120))}</span>
+      <button type="button" class="suggestion-del" data-id="${c.id}" title="Quitar de frecuentes">&times;</button>
+    </div>`).join('');
+  box.querySelectorAll('.suggestion-item').forEach(row=>{
+    const id = row.dataset.id;
+    row.querySelector('.suggestion-text').addEventListener('click', ()=> acceptSuggestion(id));
+    row.querySelector('.suggestion-del').addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      await removeFrequentComment(id);
+      renderCommentSuggestions($('#textBody').value);
+    });
+    row.addEventListener('mouseenter', ()=>{ activeSuggestionIndex = parseInt(row.dataset.index,10); paintSuggestionList(); });
+  });
+}
+function acceptSuggestion(id){
+  const item = currentSuggestionMatches.find(c => c.id === id);
+  if(item){
+    $('#textBody').value = item.text;
+    $('#commentSuggestions').style.display = 'none';
+    $('#textBody').focus();
+  }
+}
+$('#textBody').addEventListener('input', ()=> renderCommentSuggestions($('#textBody').value));
+$('#textBody').addEventListener('focus', ()=> renderCommentSuggestions($('#textBody').value));
+$('#textBody').addEventListener('keydown', (e)=>{
+  const box = $('#commentSuggestions');
+  if(box.style.display !== 'block' || !currentSuggestionMatches.length) return;
+  if(e.key === 'Tab'){
+    e.preventDefault(); // completes the highlighted suggestion instead of tabbing away
+    const item = currentSuggestionMatches[activeSuggestionIndex] || currentSuggestionMatches[0];
+    if(item) acceptSuggestion(item.id);
+  } else if(e.key === 'ArrowDown'){
+    e.preventDefault();
+    activeSuggestionIndex = (activeSuggestionIndex + 1) % currentSuggestionMatches.length;
+    paintSuggestionList();
+  } else if(e.key === 'ArrowUp'){
+    e.preventDefault();
+    activeSuggestionIndex = (activeSuggestionIndex - 1 + currentSuggestionMatches.length) % currentSuggestionMatches.length;
+    paintSuggestionList();
+  } else if(e.key === 'Escape'){
+    box.style.display = 'none';
+  }
+});
+document.addEventListener('mousedown', (e)=>{
+  if(!e.target.closest('#commentSuggestions') && e.target.id !== 'textBody'){
+    $('#commentSuggestions').style.display = 'none';
+  }
+});
+$('#btnSaveFrequent').addEventListener('click', ()=> addFrequentComment($('#textBody').value));
 
 /* ---------------- keyboard shortcut: Ctrl+Enter (or Cmd+Enter) saves the open comment ---------------- */
 let autoSaveAfterStop = false;
@@ -1410,6 +1535,11 @@ function openPopoverFor(id, anchorEl){
   } else {
     const p = el('div','txt'); p.textContent = annotation.content;
     pop.appendChild(p);
+    const freqLink = el('button','freq-toggle'); freqLink.type = 'button';
+    freqLink.style.marginTop = '7px';
+    freqLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg> Guardar como comentario frecuente';
+    freqLink.addEventListener('click', ()=> addFrequentComment(annotation.content));
+    pop.appendChild(freqLink);
   }
 
   if(!fixedCat){
