@@ -326,12 +326,36 @@
   .comment-suggestions .suggestion-empty{ padding:8px 9px; font-size:12px; color:var(--muted); font-style:italic; }
 
   .freq-toggle{
-    display:inline-flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer;
-    color:var(--accent-3); font-size:12px; font-weight:600; padding:2px 0; font-family:'PT Sans',sans-serif;
+    display:inline-flex; align-items:center; gap:6px; background:none; border:1px solid transparent; border-radius:7px;
+    cursor:pointer; color:var(--accent-3); font-size:12px; font-weight:600; padding:4px 8px; font-family:'PT Sans',sans-serif;
   }
-  .freq-toggle:hover{ text-decoration:underline; }
+  .freq-toggle:hover{ background:var(--accent-3-soft); }
+  .freq-toggle.active{ background:var(--accent-3-soft); border-color:var(--accent-3); }
+  .freq-toggle.active svg{ fill:var(--accent-3); }
 
   .cat-swatch{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+
+  .item-actions{ display:flex; align-items:center; gap:4px; margin-top:8px; }
+  .item-actions .action-btn{
+    display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:6px;
+    background:none; border:1px solid var(--line); color:var(--muted); cursor:pointer; padding:0;
+  }
+  .item-actions .action-btn:hover{ background:var(--panel); color:var(--ink); }
+  .item-actions .action-btn.freq-star.active{ color:var(--accent-3); border-color:var(--accent-3); background:var(--accent-3-soft); }
+  .item-actions .action-btn.freq-star.active svg{ fill:var(--accent-3); }
+  .item-actions .action-btn.del-btn:hover{ color:var(--accent); border-color:var(--accent); }
+  .item-actions .action-label{ font-size:11px; color:var(--muted); margin-left:2px; }
+
+  .inline-edit-ta{
+    width:100%; min-height:70px; border:1px solid var(--accent); border-radius:7px; padding:7px 8px;
+    font-family:'PT Sans',sans-serif; font-size:12.5px; resize:vertical;
+  }
+  .inline-edit-actions{ display:flex; justify-content:flex-end; gap:6px; margin-top:6px; }
+  .btn-mini{
+    font-size:11.5px; font-weight:600; padding:5px 10px; border-radius:6px; border:1px solid var(--line);
+    background:#fff; color:var(--ink); cursor:pointer; font-family:'PT Sans',sans-serif;
+  }
+  .btn-mini.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
 
   .drive-hint{ font-size:12px; color:var(--muted); line-height:1.6; background:var(--panel); border-radius:8px; padding:10px 12px; margin-bottom:14px; }
   .drive-hint a{ color:var(--accent); }
@@ -523,17 +547,19 @@
 <!-- Text comment modal -->
 <div class="modal-backdrop" id="textModalBackdrop">
   <div class="modal">
-    <h2>Comentario escrito</h2>
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+      <h2 style="margin-bottom:0;">Comentario escrito</h2>
+      <button type="button" class="freq-toggle" id="btnSaveFrequent" title="Guardar este texto para reutilizarlo en otras revisiones" style="margin-top:4px; flex:none;">
+        <svg id="btnSaveFrequentIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg>
+        <span id="btnSaveFrequentLabel">Guardar como frecuente</span>
+      </button>
+    </div>
     <p class="quote" id="textQuote"></p>
     <div class="field" style="margin-bottom:2px; position:relative;">
       <label>Comentario</label>
       <textarea id="textBody" placeholder="Escriba su observación para el estudiante…" autofocus autocomplete="off"></textarea>
       <div id="commentSuggestions" class="comment-suggestions"></div>
     </div>
-    <button type="button" class="freq-toggle" id="btnSaveFrequent" title="Guardar este texto para reutilizarlo en otras revisiones">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg>
-      Guardar como comentario frecuente
-    </button>
     <p style="font-size:11px;color:var(--muted);margin:6px 0 4px;">Tab completa la sugerencia resaltada · Podrá asignarle una categoría después, al hacer clic sobre el comentario · Ctrl+Enter para guardar</p>
     <div class="modal-actions">
       <button class="btn ghost" id="textCancel">Cancelar</button>
@@ -1231,6 +1257,7 @@ function closeAudioModal(discard){
   $('#audioModalBackdrop').style.display = 'none';
   if(mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
   clearInterval(recTimerInt);
+  reRecordTargetId = null;
   if(discard) discardPending();
 }
 function discardPending(){
@@ -1247,6 +1274,18 @@ function discardPending(){
 $('#audioSave').addEventListener('click', saveAudioComment);
 async function saveAudioComment(){
   if($('#audioSave').disabled || !recordedBase64) return;
+  if(reRecordTargetId){
+    const target = state.annotations.find(x => x.id === reRecordTargetId);
+    reRecordTargetId = null;
+    $('#audioModalBackdrop').style.display = 'none';
+    if(target){
+      target.content = recordedBase64;
+      await saveAnnotationToStorage(target);
+      renderSidebar();
+      toast('Audio actualizado');
+    }
+    return;
+  }
   const id = 'a'+Date.now()+Math.floor(Math.random()*1000);
   const annotation = {
     id, type:'audio', category:null, content: recordedBase64, createdAt: new Date().toISOString(),
@@ -1265,7 +1304,14 @@ function openTextModal(){
   $('#textModalBackdrop').style.display = 'flex';
   hideToolbar();
   renderCommentSuggestions('');
+  updateSaveFrequentButton('');
   setTimeout(()=> $('#textBody').focus(), 50);
+}
+function updateSaveFrequentButton(text){
+  const btn = $('#btnSaveFrequent');
+  const active = isTextFrequent(text);
+  btn.classList.toggle('active', active);
+  $('#btnSaveFrequentLabel').textContent = active ? 'Guardado como frecuente' : 'Guardar como frecuente';
 }
 $('#textCancel').addEventListener('click', ()=>{
   $('#textModalBackdrop').style.display = 'none';
@@ -1286,24 +1332,45 @@ async function saveTextComment(){
 
 /* ---------------- frequent text comments (comment bank, like Classroom's) ----------------
    Saved globally (not tied to any one document) so the same phrases suggest themselves
-   across every review, for every document the reviewer opens. */
+   across every review, for every document the reviewer opens. Kept as a toggle (not a
+   one-way "add") so marking/unmarking a comment as frequent is always a single click,
+   from wherever that comment is showing — the creation modal, an existing comment's
+   popover, or its card in the sidebar. */
+let freqCommentsCache = [];
 async function getFrequentComments(){
-  return (await storageGet('freqcomments:list')) || [];
+  const list = (await storageGet('freqcomments:list')) || [];
+  freqCommentsCache = list;
+  return list;
 }
-async function addFrequentComment(text){
+getFrequentComments(); // warm the cache once at startup so isTextFrequent() works immediately
+function isTextFrequent(text){
   text = (text||'').trim();
-  if(!text){ toast('Escriba el comentario antes de guardarlo como frecuente.'); return; }
+  return !!text && freqCommentsCache.some(c => c.text === text);
+}
+async function toggleFrequentComment(text){
+  text = (text||'').trim();
+  if(!text){ toast('Escriba el comentario antes de guardarlo como frecuente.'); return null; }
   const list = await getFrequentComments();
-  if(list.some(c => c.text === text)){ toast('Ese comentario ya estaba guardado como frecuente.'); return; }
+  const idx = list.findIndex(c => c.text === text);
+  if(idx >= 0){
+    list.splice(idx, 1);
+    await storageSet('freqcomments:list', list);
+    freqCommentsCache = list;
+    toast('Quitado de comentarios frecuentes');
+    return false;
+  }
   list.unshift({ id:'f'+Date.now()+Math.floor(Math.random()*1000), text });
   if(list.length > 50) list.length = 50; // keep the bank from growing without bound
   await storageSet('freqcomments:list', list);
+  freqCommentsCache = list;
   toast('Guardado como comentario frecuente ⭐');
-  renderCommentSuggestions($('#textBody').value);
+  return true;
 }
 async function removeFrequentComment(id){
   const list = await getFrequentComments();
-  await storageSet('freqcomments:list', list.filter(c => c.id !== id));
+  const newList = list.filter(c => c.id !== id);
+  await storageSet('freqcomments:list', newList);
+  freqCommentsCache = newList;
 }
 let currentSuggestionMatches = [];
 let activeSuggestionIndex = -1;
@@ -1350,7 +1417,7 @@ function acceptSuggestion(id){
     $('#textBody').focus();
   }
 }
-$('#textBody').addEventListener('input', ()=> renderCommentSuggestions($('#textBody').value));
+$('#textBody').addEventListener('input', ()=>{ renderCommentSuggestions($('#textBody').value); updateSaveFrequentButton($('#textBody').value); });
 $('#textBody').addEventListener('focus', ()=> renderCommentSuggestions($('#textBody').value));
 $('#textBody').addEventListener('keydown', (e)=>{
   const box = $('#commentSuggestions');
@@ -1376,7 +1443,11 @@ document.addEventListener('mousedown', (e)=>{
     $('#commentSuggestions').style.display = 'none';
   }
 });
-$('#btnSaveFrequent').addEventListener('click', ()=> addFrequentComment($('#textBody').value));
+$('#btnSaveFrequent').addEventListener('click', async ()=>{
+  await toggleFrequentComment($('#textBody').value);
+  updateSaveFrequentButton($('#textBody').value);
+  renderCommentSuggestions($('#textBody').value);
+});
 
 /* ---------------- keyboard shortcut: Ctrl+Enter (or Cmd+Enter) saves the open comment ---------------- */
 let autoSaveAfterStop = false;
@@ -1537,8 +1608,13 @@ function openPopoverFor(id, anchorEl){
     pop.appendChild(p);
     const freqLink = el('button','freq-toggle'); freqLink.type = 'button';
     freqLink.style.marginTop = '7px';
-    freqLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg> Guardar como comentario frecuente';
-    freqLink.addEventListener('click', ()=> addFrequentComment(annotation.content));
+    const paintFreqLink = ()=>{
+      const active = isTextFrequent(annotation.content);
+      freqLink.classList.toggle('active', active);
+      freqLink.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg> ' + (active ? 'Guardado como frecuente' : 'Guardar como comentario frecuente');
+    };
+    paintFreqLink();
+    freqLink.addEventListener('click', async ()=>{ await toggleFrequentComment(annotation.content); paintFreqLink(); });
     pop.appendChild(freqLink);
   }
 
@@ -1646,22 +1722,80 @@ function renderSidebar(){
 
     if(a.snippet){ const sn = el('div','snippet'); sn.textContent = '“'+a.snippet+'”'; item.appendChild(sn); }
 
+    const contentWrap = el('div','content-wrap');
     if(a.type==='audio'){
-      const audio = document.createElement('audio'); audio.controls=true; audio.src=a.content; item.appendChild(audio);
+      const audio = document.createElement('audio'); audio.controls=true; audio.src=a.content; contentWrap.appendChild(audio);
     } else if(a.type==='quick' || a.type==='ai'){
       const txt = el('div','txt'); txt.style.color = a.content ? 'var(--ink)' : 'var(--muted)';
       txt.style.fontStyle = a.content ? 'normal' : 'italic';
       txt.textContent = a.content || (a.type==='ai' ? 'Marca de posible contenido IA sin nota adicional' : 'Marca de ortografía/redacción sin nota adicional');
-      item.appendChild(txt);
+      contentWrap.appendChild(txt);
     } else {
-      const txt = el('div','txt'); txt.textContent = a.content; item.appendChild(txt);
+      const txt = el('div','txt'); txt.textContent = a.content; contentWrap.appendChild(txt);
     }
-    const del = el('button','del'); del.textContent='Eliminar'; del.addEventListener('click',(e)=>{ e.stopPropagation(); removeAnnotation(a.id); });
-    item.appendChild(del);
+    item.appendChild(contentWrap);
+
+    const actions = el('div','item-actions');
+    const editBtn = el('button','action-btn'); editBtn.type='button';
+    editBtn.title = a.type==='audio' ? 'Regrabar audio' : 'Editar';
+    editBtn.innerHTML = a.type==='audio'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 15a3 3 0 003-3V6a3 3 0 00-6 0v6a3 3 0 003 3z"/><path d="M19 11a7 7 0 01-14 0M12 18v3"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 00-3-3L5 17v3z"/></svg>';
+    editBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if(a.type === 'audio'){ startAudioReRecord(a); }
+      else { startInlineEdit(a, contentWrap); }
+    });
+    actions.appendChild(editBtn);
+
+    if(a.type === 'text'){
+      const freqBtn = el('button','action-btn freq-star'); freqBtn.type='button';
+      const isFreq = isTextFrequent(a.content);
+      freqBtn.classList.toggle('active', isFreq);
+      freqBtn.title = isFreq ? 'Quitar de comentarios frecuentes' : 'Guardar como comentario frecuente';
+      freqBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="'+(isFreq?'currentColor':'none')+'" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3 1.2-6.8-5-4.9 6.9-1z"/></svg>';
+      freqBtn.addEventListener('click', async (e)=>{ e.stopPropagation(); await toggleFrequentComment(a.content); renderSidebar(); });
+      actions.appendChild(freqBtn);
+    }
+
+    const del = el('button','action-btn del-btn'); del.type='button'; del.title='Eliminar';
+    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M4 7h16M8 7V4h8v3M6 7l1 13h10l1-13"/></svg>';
+    del.addEventListener('click',(e)=>{ e.stopPropagation(); removeAnnotation(a.id); });
+    actions.appendChild(del);
+    item.appendChild(actions);
 
     item.addEventListener('click', ()=>{ scrollToAnnotation(a); activateConnection(a.id); });
     list.appendChild(item);
   });
+}
+function startInlineEdit(a, contentWrap){
+  contentWrap.innerHTML = '';
+  const ta = document.createElement('textarea');
+  ta.className = 'inline-edit-ta';
+  ta.value = a.content || '';
+  contentWrap.appendChild(ta);
+  const actionsRow = el('div','inline-edit-actions');
+  const cancelBtn = el('button','btn-mini'); cancelBtn.type='button'; cancelBtn.textContent='Cancelar';
+  const saveBtn = el('button','btn-mini primary'); saveBtn.type='button'; saveBtn.textContent='Guardar';
+  actionsRow.appendChild(cancelBtn); actionsRow.appendChild(saveBtn);
+  contentWrap.appendChild(actionsRow);
+  ta.focus();
+  cancelBtn.addEventListener('click', (e)=>{ e.stopPropagation(); renderSidebar(); });
+  saveBtn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    a.content = ta.value.trim();
+    await saveAnnotationToStorage(a);
+    renderSidebar();
+    toast('Comentario actualizado');
+  });
+}
+let reRecordTargetId = null;
+function startAudioReRecord(a){
+  reRecordTargetId = a.id;
+  $('#audioQuote').textContent = a.snippet ? '“' + truncate(a.snippet, 160) + '”' : 'Nueva grabación';
+  resetRecorder();
+  $('#audioModalBackdrop').style.display = 'flex';
+  startRecording();
 }
 function scrollToAnnotation(a){
   let target;
