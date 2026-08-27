@@ -658,6 +658,8 @@ let state = {
   annotations: [],      // {id, type, category, content, createdAt, page, rects}
   pendingSelection: null, // {text, page, rects}
   reviewerName: '',    // per-document override; empty = use DEFAULT_REVIEWER
+  pdfRenderObserver: null, // IntersectionObserver that lazily renders pages near the viewport
+  pdfUnloadObserver: null, // IntersectionObserver that unloads pages once they're far away
 };
 
 const $ = sel => document.querySelector(sel);
@@ -899,7 +901,9 @@ function resetToNewDocument(){
   deactivateConnection();
 
   if(state.pdfDoc && typeof state.pdfDoc.destroy === 'function'){ state.pdfDoc.destroy(); }
-  state = { docType:null, fileName:null, docHash:null, pdfDoc:null, pageScales:[], annotations:[], pendingSelection:null, reviewerName:'' };
+  if(state.pdfRenderObserver){ state.pdfRenderObserver.disconnect(); }
+  if(state.pdfUnloadObserver){ state.pdfUnloadObserver.disconnect(); }
+  state = { docType:null, fileName:null, docHash:null, pdfDoc:null, pageScales:[], annotations:[], pendingSelection:null, reviewerName:'', pdfRenderObserver:null, pdfUnloadObserver:null };
   pendingKind = null; pendingPdf = null; currentSelectionRange = null;
 
   $('#viewer').innerHTML = '';
@@ -960,6 +964,9 @@ async function renderPDF(arrayBuffer){
   state.pdfDoc = pdf;
   state.pageScales = [];
 
+  // Pass 1: create a lightweight placeholder for every page, sized correctly up front, so
+  // scrolling and the scrollbar feel right immediately. The actual rasterization (the
+  // expensive part) happens lazily in pass 2, only for pages actually near the viewport.
   for(let pageNum = 1; pageNum <= pdf.numPages; pageNum++){
     const page = await pdf.getPage(pageNum);
     const targetWidth = 840;
@@ -970,27 +977,87 @@ async function renderPDF(arrayBuffer){
 
     const pageContainer = el('div','page-container');
     pageContainer.dataset.page = pageNum;
+    pageContainer.dataset.rendered = 'false';
     pageContainer.style.width = viewport.width + 'px';
     pageContainer.style.height = viewport.height + 'px';
-
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width; canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    pageContainer.appendChild(canvas);
-
-    const textLayerDiv = el('div','textLayer');
-    textLayerDiv.style.width = viewport.width + 'px';
-    textLayerDiv.style.height = viewport.height + 'px';
-    pageContainer.appendChild(textLayerDiv);
-
     viewer.appendChild(pageContainer);
-
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    const textContent = await page.getTextContent();
-    pdfjsLib.renderTextLayer({
-      textContent, container: textLayerDiv, viewport, textDivs: []
-    });
   }
+
+  // Pass 2: two observers, each watching every page, with deliberately different margins:
+  //  - render zone (close): renders a page once it's about to be reached.
+  //  - keep-alive zone (far, ~3x wider): only once a page drifts out past THIS point does it
+  //    get unloaded back into a placeholder. Anything between the two margins is left alone.
+  // That gap between the two thresholds is what stops a page from being rendered, unloaded,
+  // and re-rendered over and over as the professor scrolls back and forth near one spot —
+  // without it, this would fight itself instead of fixing the sluggishness.
+  if(state.pdfRenderObserver) state.pdfRenderObserver.disconnect();
+  if(state.pdfUnloadObserver) state.pdfUnloadObserver.disconnect();
+
+  const renderObserver = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting) renderPdfPage(parseInt(entry.target.dataset.page, 10));
+    });
+  }, { root: $('#viewerWrap'), rootMargin: '1400px 0px 1400px 0px' });
+
+  const unloadObserver = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(!entry.isIntersecting) unloadPdfPage(parseInt(entry.target.dataset.page, 10));
+    });
+  }, { root: $('#viewerWrap'), rootMargin: '4500px 0px 4500px 0px' });
+
+  document.querySelectorAll('.page-container').forEach(elm => {
+    renderObserver.observe(elm);
+    unloadObserver.observe(elm);
+  });
+  state.pdfRenderObserver = renderObserver;
+  state.pdfUnloadObserver = unloadObserver;
+}
+
+async function renderPdfPage(pageNum){
+  const pageContainer = document.querySelector(`.page-container[data-page="${pageNum}"]`);
+  if(!pageContainer || pageContainer.dataset.rendered === 'true') return;
+  pageContainer.dataset.rendered = 'true'; // set before awaiting so a second trigger doesn't double-render
+
+  const page = await state.pdfDoc.getPage(pageNum);
+  const scale = state.pageScales[pageNum];
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  pageContainer.insertBefore(canvas, pageContainer.firstChild);
+
+  const textLayerDiv = el('div','textLayer');
+  textLayerDiv.style.width = viewport.width + 'px';
+  textLayerDiv.style.height = viewport.height + 'px';
+  pageContainer.insertBefore(textLayerDiv, canvas.nextSibling);
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const textContent = await page.getTextContent();
+  pdfjsLib.renderTextLayer({
+    textContent, container: textLayerDiv, viewport, textDivs: []
+  });
+}
+
+// Releases a page's rendered image once it's drifted far from the viewport, turning it back
+// into a lightweight placeholder — this is what keeps a long document light no matter how much
+// of it the professor has already scrolled through. Highlights (.hl-rect) are untouched, since
+// they're cheap and don't depend on the canvas/text layer being present.
+function unloadPdfPage(pageNum){
+  const pageContainer = document.querySelector(`.page-container[data-page="${pageNum}"]`);
+  if(!pageContainer || pageContainer.dataset.rendered !== 'true') return;
+  const canvas = pageContainer.querySelector('canvas');
+  const textLayer = pageContainer.querySelector('.textLayer');
+  if(canvas) canvas.remove();
+  if(textLayer) textLayer.remove();
+  pageContainer.dataset.rendered = 'false';
+}
+
+// Forces a page to be fully rendered right now (used before export/reading pixels — a page
+// the professor never scrolled to, or that drifted out and got unloaded, would otherwise
+// still be an empty placeholder).
+async function ensurePdfPageRendered(pageNum){
+  await renderPdfPage(pageNum);
 }
 
 /* ---------------- selection -> toolbar ---------------- */
@@ -1869,10 +1936,10 @@ async function buildExportHTML(){
     let includedCount = 0;
     let lastIncludedPageNum = 0;
 
-    pages.forEach(p=>{
+    for(const p of pages){
       const pageNum = p.dataset.page;
       const pageAnnots = sortedList.filter(a=>String(a.page)===String(pageNum));
-      if(pageAnnots.length === 0) return; // skip rendering (and encoding) pages with no comments
+      if(pageAnnots.length === 0) continue; // skip rendering (and encoding) pages with no comments
 
       const pageNumInt = parseInt(pageNum, 10);
       if(lastIncludedPageNum > 0 && pageNumInt > lastIncludedPageNum + 1){
@@ -1883,6 +1950,10 @@ async function buildExportHTML(){
       lastIncludedPageNum = pageNumInt;
       includedCount++;
 
+      // pages the professor never scrolled to are still just an empty placeholder (scrolling
+      // performance depends on not rendering every page up front) — render it now so the export
+      // actually has its image, instead of an empty canvas.
+      await ensurePdfPageRendered(pageNumInt);
       const canvas = p.querySelector('canvas');
       // WebP instead of PNG: tested against real exported pages and consistently ~28% smaller
       // with no visible quality loss. (JPEG was tried first but actually came out LARGER for
@@ -1904,7 +1975,7 @@ async function buildExportHTML(){
         </div>
         <div class="comments-side">${pageCommentsHTML}</div>
       </div>`;
-    });
+    }
 
     if(lastIncludedPageNum > 0 && lastIncludedPageNum < totalPages){
       const from = lastIncludedPageNum + 1, to = totalPages;
@@ -2457,7 +2528,7 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Ábralo en su navegador: cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto a su computadora y ábralo ya descargado con su navegador (Chrome, Edge o Firefox) — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
