@@ -330,7 +330,6 @@
   .freq-toggle:hover{ background:var(--accent-3-soft); }
   .freq-toggle.active{ background:var(--accent-3-soft); border-color:var(--accent-3); }
 
-  #btnVoiceDistort.active{ background:var(--accent-4-soft); border-color:var(--accent-4); color:var(--accent-4); }
   .freq-toggle.active svg{ fill:var(--accent-3); }
 
   .cat-swatch{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
@@ -433,10 +432,6 @@
       <button class="btn" id="btnOpenDrive" title="Abrir un trabajo directamente desde Google Drive">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
         Abrir desde Drive
-      </button>
-      <button class="btn ghost" id="btnVoiceDistort" title="Cambia ligeramente el tono de los comentarios de audio, como disuasivo adicional frente al uso indebido de su voz (no es una protección técnica garantizada)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-7 3 14 3-10 2 5h4"/></svg>
-        <span class="distort-label">Voz: normal</span>
       </button>
       <span class="header-spacer"></span>
       <button class="btn primary" id="btnExport" disabled>
@@ -1049,9 +1044,30 @@ async function renderPdfPage(pageNum){
 
   await page.render({ canvasContext: ctx, viewport }).promise;
   const textContent = await page.getTextContent();
-  pdfjsLib.renderTextLayer({
+  const textLayerTask = pdfjsLib.renderTextLayer({
     textContent, container: textLayerDiv, viewport, textDivs: []
   });
+  if(textLayerTask && textLayerTask.promise){ await textLayerTask.promise; }
+  reorderTextLayerForSelection(textLayerDiv);
+}
+
+// pdf.js lays out text spans in the PDF's internal content-stream order, which is usually
+// close to reading order but isn't guaranteed — especially on cover pages with seals/logos,
+// where a text box can sit earlier or later in that order than where it's actually drawn.
+// Native browser selection follows DOM order, not visual position, so a mismatch there is what
+// makes a normal drag-selection unexpectedly grab far-away text. Re-sorting the already-
+// positioned spans into real top-to-bottom, left-to-right order fixes that, without changing
+// anything about how the page actually looks.
+function reorderTextLayerForSelection(textLayerDiv){
+  const spans = Array.from(textLayerDiv.children);
+  if(spans.length < 2) return;
+  const withRects = spans.map(node => ({ node, rect: node.getBoundingClientRect() }));
+  withRects.sort((a, b)=>{
+    const dy = a.rect.top - b.rect.top;
+    if(Math.abs(dy) > 3) return dy; // clearly different lines: top-to-bottom
+    return a.rect.left - b.rect.left; // same line: left-to-right
+  });
+  withRects.forEach(({node}) => textLayerDiv.appendChild(node));
 }
 
 // Releases a page's rendered image once it's drifted far from the viewport, turning it back
@@ -1202,89 +1218,6 @@ async function ensureMicStream(){
    spoken clarity, and avoids leaving the bitrate to whatever the browser defaults to (which
    varies a lot and can be 4x larger for the same length). Falls back gracefully if a browser
    doesn't support the preferred mimeType. */
-/* ---------------- voice distortion (deterrent against voice cloning misuse) ----------------
-   A global, persistent preference (not tied to any one document) — 'off' | 'light' | 'medium'.
-   IMPORTANT (see the export notice shown to students, and the conversation this came from):
-   this is a deterrent, not real protection. It doesn't require a phase-vocoder-quality
-   pitch-shift-without-tempo-change — that's a lot of extra code for a feature that's already
-   just raising the bar a little, not guaranteeing anything. So: change the recording's
-   playback rate (which changes pitch and speed together — a small, honest trade-off), and for
-   "medium" also narrow the frequency band (telephone-style) for a bit more disguise. Both are
-   plain Web Audio API — no added libraries. */
-let audioDistortionLevel = 'off';
-async function loadAudioDistortionSetting(){
-  const saved = await storageGet('audioDistortion:level');
-  audioDistortionLevel = (saved === 'light' || saved === 'medium') ? saved : 'off';
-  updateDistortionButton();
-}
-loadAudioDistortionSetting();
-
-function updateDistortionButton(){
-  const btn = $('#btnVoiceDistort');
-  if(!btn) return;
-  const labels = { off: 'Voz: normal', light: 'Voz: ligera', medium: 'Voz: media' };
-  const label = btn.querySelector('.distort-label');
-  if(label) label.textContent = labels[audioDistortionLevel];
-  btn.classList.toggle('active', audioDistortionLevel !== 'off');
-}
-$('#btnVoiceDistort').addEventListener('click', async ()=>{
-  const order = ['off','light','medium'];
-  audioDistortionLevel = order[(order.indexOf(audioDistortionLevel)+1) % order.length];
-  await storageSet('audioDistortion:level', audioDistortionLevel);
-  updateDistortionButton();
-  toast(audioDistortionLevel === 'off'
-    ? 'Distorsión de voz desactivada'
-    : `Distorsión de voz: ${audioDistortionLevel === 'light' ? 'ligera' : 'media'}`);
-});
-
-// Re-encodes a recorded clip with a pitch/tone change, at the same low bitrate as a normal
-// recording (so file size stays consistent). Runs in roughly real time (plays the clip back
-// internally while re-recording it), since that's what lets it come back out as compact
-// Opus/WebM instead of an uncompressed file. Never lets a processing failure lose the
-// original recording — falls back to it if anything goes wrong.
-async function applyVoiceDistortion(blob){
-  if(audioDistortionLevel === 'off') return blob;
-  try{
-    const arrayBuffer = await blob.arrayBuffer();
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if(ctx.state === 'suspended') await ctx.resume();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-    const rate = audioDistortionLevel === 'medium' ? 0.80 : 0.90; // lower = deeper/slower voice
-    const destination = ctx.createMediaStreamDestination();
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = rate;
-
-    let lastNode = source;
-    if(audioDistortionLevel === 'medium'){
-      const bandpass = ctx.createBiquadFilter();
-      bandpass.type = 'bandpass';
-      bandpass.frequency.value = 1500;
-      bandpass.Q.value = 0.7;
-      source.connect(bandpass);
-      lastNode = bandpass;
-    }
-    lastNode.connect(destination); // NOT connected to ctx.destination on purpose — stays silent locally while it re-records
-
-    const recorder = new MediaRecorder(destination.stream, getVoiceRecorderOptions());
-    const chunks = [];
-    recorder.ondataavailable = e => chunks.push(e.data);
-    const stopped = new Promise(resolve => { recorder.onstop = resolve; });
-    recorder.start();
-    source.start();
-    const playbackMs = (audioBuffer.duration / rate) * 1000 + 200;
-    await new Promise(r => setTimeout(r, playbackMs));
-    recorder.stop();
-    await stopped;
-    ctx.close();
-    return new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-  }catch(err){
-    console.error('No se pudo aplicar la distorsión de voz, se conserva la grabación original', err);
-    return blob;
-  }
-}
-
 function getVoiceRecorderOptions(){
   const opts = { audioBitsPerSecond: 32000 };
   const candidates = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
@@ -1306,16 +1239,13 @@ async function startRecording(){
     mediaRecorder.onstop = async ()=>{
       // NOTE: we deliberately do NOT stop the stream's tracks here — the stream is reused
       // for the next comment so the browser doesn't have to ask for permission again.
-      let blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-      if(audioDistortionLevel !== 'off'){
-        $('#recHint').textContent = 'Aplicando distorsión de voz…';
-        blob = await applyVoiceDistortion(blob);
-      }
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
       recordedBlobURL = URL.createObjectURL(blob);
       recordedBase64 = await blobToBase64(blob);
       $('#recPreview').style.display = 'block';
       $('#recPreview').innerHTML = '';
       const audio = document.createElement('audio'); audio.controls = true; audio.src = recordedBlobURL;
+      audio.setAttribute('controlsList','nodownload'); audio.oncontextmenu = () => false;
       $('#recPreview').appendChild(audio);
       $('#audioSave').disabled = false;
       $('#recHint').textContent = 'Grabación lista — puede reproducirla o volver a grabar antes de guardar';
@@ -1643,6 +1573,7 @@ function openPopoverFor(id, anchorEl){
 
   if(annotation.type === 'audio'){
     const audio = document.createElement('audio'); audio.controls = true; audio.src = annotation.content;
+    audio.setAttribute('controlsList','nodownload'); audio.oncontextmenu = () => false;
     pop.appendChild(audio);
   } else if(fixedCat){
     const hint = el('div'); hint.style.cssText='font-size:11.5px;color:var(--muted);margin-bottom:5px;';
@@ -1779,7 +1710,9 @@ function renderSidebar(){
 
     const contentWrap = el('div','content-wrap');
     if(a.type==='audio'){
-      const audio = document.createElement('audio'); audio.controls=true; audio.src=a.content; contentWrap.appendChild(audio);
+      const audio = document.createElement('audio'); audio.controls=true; audio.src=a.content;
+      audio.setAttribute('controlsList','nodownload'); audio.oncontextmenu = () => false;
+      contentWrap.appendChild(audio);
     } else if(a.type==='quick' || a.type==='ai'){
       const txt = el('div','txt'); txt.style.color = a.content ? 'var(--ink)' : 'var(--muted)';
       txt.style.fontStyle = a.content ? 'normal' : 'italic';
@@ -2013,7 +1946,7 @@ async function buildExportHTML(){
   function commentCardHTML(a){
     const cat = a.type === 'quick' ? QUICK_CAT : (a.type === 'ai' ? AI_CAT : catInfo(a.category));
     const body = a.type==='audio'
-      ? `<audio controls src="${a.content}"></audio>`
+      ? `<audio controls controlsList="nodownload" oncontextmenu="return false" src="${a.content}"></audio>`
       : (a.type==='quick' || a.type==='ai')
       ? `<div class="txt">${a.content ? escapeHtml(a.content) : `<em style="color:var(--muted);">${a.type==='ai' ? 'Marca de posible contenido IA sin nota adicional' : 'Marca de ortografía/redacción sin nota adicional'}</em>`}</div>`
       : `<div class="txt">${escapeHtml(a.content)}</div>`;
@@ -2634,7 +2567,7 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto a su computadora o teléfono celular y ábralo ya descargado con su navegador (Chrome, Edge o Firefox) — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
