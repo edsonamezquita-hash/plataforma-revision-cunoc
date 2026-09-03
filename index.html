@@ -265,6 +265,15 @@
     position:fixed; inset:0; background:rgba(28,29,33,.44); z-index:100; display:none;
     align-items:center; justify-content:center;
   }
+  /* Recording dialog sits top-right, over the saved-comments column, instead of dead-center —
+     so the passage being narrated (usually left/center of the screen) stays visible and the
+     reviewer doesn't have to stop reading it to record. No dimming either, and clicks pass
+     through everywhere except the panel itself, so the document stays fully usable underneath. */
+  #audioModalBackdrop{
+    background:transparent; align-items:flex-start; justify-content:flex-end;
+    padding:112px 28px 0 0; pointer-events:none;
+  }
+  #audioModalBackdrop .modal{ pointer-events:auto; width:300px; border:1px solid var(--line); }
   .modal{
     background:#fff; border-radius:14px; width:420px; max-width:92vw; padding:22px 24px; box-shadow:0 24px 60px rgba(0,0,0,.3);
   }
@@ -320,6 +329,8 @@
   }
   .freq-toggle:hover{ background:var(--accent-3-soft); }
   .freq-toggle.active{ background:var(--accent-3-soft); border-color:var(--accent-3); }
+
+  #btnVoiceDistort.active{ background:var(--accent-4-soft); border-color:var(--accent-4); color:var(--accent-4); }
   .freq-toggle.active svg{ fill:var(--accent-3); }
 
   .cat-swatch{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
@@ -422,6 +433,10 @@
       <button class="btn" id="btnOpenDrive" title="Abrir un trabajo directamente desde Google Drive">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3h8l5 8.5-4 7H7l-4-7z"/><path d="M8 3l-5 8.5M16 3l5 8.5M4 11.5h16"/></svg>
         Abrir desde Drive
+      </button>
+      <button class="btn ghost" id="btnVoiceDistort" title="Cambia ligeramente el tono de los comentarios de audio, como disuasivo adicional frente al uso indebido de su voz (no es una protección técnica garantizada)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-7 3 14 3-10 2 5h4"/></svg>
+        <span class="distort-label">Voz: normal</span>
       </button>
       <span class="header-spacer"></span>
       <button class="btn primary" id="btnExport" disabled>
@@ -1187,6 +1202,89 @@ async function ensureMicStream(){
    spoken clarity, and avoids leaving the bitrate to whatever the browser defaults to (which
    varies a lot and can be 4x larger for the same length). Falls back gracefully if a browser
    doesn't support the preferred mimeType. */
+/* ---------------- voice distortion (deterrent against voice cloning misuse) ----------------
+   A global, persistent preference (not tied to any one document) — 'off' | 'light' | 'medium'.
+   IMPORTANT (see the export notice shown to students, and the conversation this came from):
+   this is a deterrent, not real protection. It doesn't require a phase-vocoder-quality
+   pitch-shift-without-tempo-change — that's a lot of extra code for a feature that's already
+   just raising the bar a little, not guaranteeing anything. So: change the recording's
+   playback rate (which changes pitch and speed together — a small, honest trade-off), and for
+   "medium" also narrow the frequency band (telephone-style) for a bit more disguise. Both are
+   plain Web Audio API — no added libraries. */
+let audioDistortionLevel = 'off';
+async function loadAudioDistortionSetting(){
+  const saved = await storageGet('audioDistortion:level');
+  audioDistortionLevel = (saved === 'light' || saved === 'medium') ? saved : 'off';
+  updateDistortionButton();
+}
+loadAudioDistortionSetting();
+
+function updateDistortionButton(){
+  const btn = $('#btnVoiceDistort');
+  if(!btn) return;
+  const labels = { off: 'Voz: normal', light: 'Voz: ligera', medium: 'Voz: media' };
+  const label = btn.querySelector('.distort-label');
+  if(label) label.textContent = labels[audioDistortionLevel];
+  btn.classList.toggle('active', audioDistortionLevel !== 'off');
+}
+$('#btnVoiceDistort').addEventListener('click', async ()=>{
+  const order = ['off','light','medium'];
+  audioDistortionLevel = order[(order.indexOf(audioDistortionLevel)+1) % order.length];
+  await storageSet('audioDistortion:level', audioDistortionLevel);
+  updateDistortionButton();
+  toast(audioDistortionLevel === 'off'
+    ? 'Distorsión de voz desactivada'
+    : `Distorsión de voz: ${audioDistortionLevel === 'light' ? 'ligera' : 'media'}`);
+});
+
+// Re-encodes a recorded clip with a pitch/tone change, at the same low bitrate as a normal
+// recording (so file size stays consistent). Runs in roughly real time (plays the clip back
+// internally while re-recording it), since that's what lets it come back out as compact
+// Opus/WebM instead of an uncompressed file. Never lets a processing failure lose the
+// original recording — falls back to it if anything goes wrong.
+async function applyVoiceDistortion(blob){
+  if(audioDistortionLevel === 'off') return blob;
+  try{
+    const arrayBuffer = await blob.arrayBuffer();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if(ctx.state === 'suspended') await ctx.resume();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+    const rate = audioDistortionLevel === 'medium' ? 0.80 : 0.90; // lower = deeper/slower voice
+    const destination = ctx.createMediaStreamDestination();
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.playbackRate.value = rate;
+
+    let lastNode = source;
+    if(audioDistortionLevel === 'medium'){
+      const bandpass = ctx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.value = 1500;
+      bandpass.Q.value = 0.7;
+      source.connect(bandpass);
+      lastNode = bandpass;
+    }
+    lastNode.connect(destination); // NOT connected to ctx.destination on purpose — stays silent locally while it re-records
+
+    const recorder = new MediaRecorder(destination.stream, getVoiceRecorderOptions());
+    const chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+    recorder.start();
+    source.start();
+    const playbackMs = (audioBuffer.duration / rate) * 1000 + 200;
+    await new Promise(r => setTimeout(r, playbackMs));
+    recorder.stop();
+    await stopped;
+    ctx.close();
+    return new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+  }catch(err){
+    console.error('No se pudo aplicar la distorsión de voz, se conserva la grabación original', err);
+    return blob;
+  }
+}
+
 function getVoiceRecorderOptions(){
   const opts = { audioBitsPerSecond: 32000 };
   const candidates = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'];
@@ -1208,7 +1306,11 @@ async function startRecording(){
     mediaRecorder.onstop = async ()=>{
       // NOTE: we deliberately do NOT stop the stream's tracks here — the stream is reused
       // for the next comment so the browser doesn't have to ask for permission again.
-      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      let blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      if(audioDistortionLevel !== 'off'){
+        $('#recHint').textContent = 'Aplicando distorsión de voz…';
+        blob = await applyVoiceDistortion(blob);
+      }
       recordedBlobURL = URL.createObjectURL(blob);
       recordedBase64 = await blobToBase64(blob);
       $('#recPreview').style.display = 'block';
@@ -1987,7 +2089,10 @@ async function buildExportHTML(){
       ? `<div class="export-scope-note">Se muestran ${includedCount} de ${totalPages} página${totalPages===1?'':'s'} — únicamente las que tienen comentarios.</div>`
       : `<div class="export-scope-note">Este documento aún no tiene comentarios.</div>`;
 
-    bodyHTML = `<div id="viewer">${scopeNote}${pageBlocksHTML}</div>`;
+    const hasAudio = sortedList.some(a => a.type === 'audio');
+    const audioNoticeHTML = hasAudio ? `<div class="audio-notice"><strong>Aviso sobre el uso de los comentarios en audio:</strong> este documento contiene grabaciones con la voz real de quien realizó la revisión. Están destinadas exclusivamente al uso personal y académico del estudiante que recibe esta retroalimentación. Queda prohibido copiarlas, redistribuirlas, publicarlas, o utilizarlas — total o parcialmente — para entrenar sistemas de inteligencia artificial o generar voces sintéticas (clonación de voz). El uso indebido de esta grabación puede constituir una violación a la privacidad de la persona que la produjo.</div>` : '';
+
+    bodyHTML = `<div id="viewer">${audioNoticeHTML}${scopeNote}${pageBlocksHTML}</div>`;
     sidebarHTML = ''; // comments are already inline per page, no separate global list needed
   }
 
@@ -2034,6 +2139,7 @@ async function buildExportHTML(){
   .comments-side .no-comments{ color:var(--muted); font-size:12.5px; padding:10px 2px; font-style:italic; }
   .page-gap{ text-align:center; color:var(--muted); font-size:12.5px; font-style:italic; padding:6px 0 18px; }
   .export-scope-note{ text-align:center; color:var(--muted); font-size:12px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-bottom:20px; }
+  .audio-notice{ font-size:12.5px; line-height:1.55; color:var(--ink); background:var(--accent-soft); border:1px solid var(--accent); border-radius:8px; padding:12px 16px; margin-bottom:16px; }
   .page-container{ position:relative; margin:0; box-shadow:0 8px 22px rgba(21,34,56,.12); background:#fff; }
   .page-container img{ display:block; width:100%; }
   mark.annot-mark, .hl-rect{ cursor:pointer; border-radius:2px; position:relative; }
@@ -2528,7 +2634,7 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Apreciable estudiante,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto a su computadora y ábralo ya descargado con su navegador (Chrome, Edge o Firefox) — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto a su computadora y ábralo ya descargado con su navegador (Chrome, Edge o Firefox) — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
