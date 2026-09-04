@@ -850,10 +850,11 @@ $('#logoInput').addEventListener('change', async (e)=>{
 });
 
 /* ---------------- configurable reviewer name ----------------
-   Defaults to Edson unless the professor sets a different name for this device — used in the
-   "Revisado por" line of every exported review. Scoped to the CURRENT document (not global) —
-   each document remembers its own reviewer, and a freshly opened document always starts blank
-   (falling back to the default) until you set one for that specific document. */
+   Defaults to Edson unless the reviewer sets a different name. Remembered as a general
+   preference for this browser — a newly opened document starts with whatever name was used
+   last, instead of asking again every time. If the document being reopened was already
+   reviewed before (by anyone) with a specific name saved on IT, that document's own saved
+   name wins over the general preference — see loadExistingAnnotations(). */
 const DEFAULT_REVIEWER = 'M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo';
 function getReviewerName(){
   return (state.reviewerName && state.reviewerName.trim()) ? state.reviewerName.trim() : DEFAULT_REVIEWER;
@@ -873,8 +874,9 @@ $('#reviewerSave').addEventListener('click', async ()=>{
   const name = $('#reviewerNameInput').value.trim();
   state.reviewerName = name;
   if(state.docHash) await saveMeta();
+  await storageSet('reviewer:lastUsedName', name); // remembered for the next document too
   refreshReviewerUI();
-  toast(name ? 'Revisor actualizado para este documento' : 'Se usará el revisor predeterminado');
+  toast(name ? 'Revisor actualizado' : 'Se usará el revisor predeterminado');
   $('#reviewerModalBackdrop').style.display = 'none';
 });
 
@@ -914,7 +916,7 @@ function resetToNewDocument(){
   if(state.pdfRenderObserver){ state.pdfRenderObserver.disconnect(); }
   if(state.pdfUnloadObserver){ state.pdfUnloadObserver.disconnect(); }
   state = { docType:null, fileName:null, docHash:null, pdfDoc:null, pageScales:[], annotations:[], pendingSelection:null, reviewerName:'', pdfRenderObserver:null, pdfUnloadObserver:null };
-  pendingKind = null; pendingPdf = null; currentSelectionRange = null;
+  pendingKind = null; pendingPdf = null; currentSelectionRange = null; currentSelectionText = '';
 
   $('#viewer').innerHTML = '';
   $('#generalComment').value = '';
@@ -944,7 +946,10 @@ async function handleFile(file){
   state.docHash = hashFile(file);
   state.docType = 'pdf';
   state.annotations = [];
-  state.reviewerName = ''; // resets to default; loadExistingAnnotations() below restores it if this exact document was already saved with a custom reviewer
+  // Starts as whichever name was used last (a general preference for this browser) —
+  // loadExistingAnnotations() below overrides it if THIS specific document already has its
+  // own saved reviewer name (e.g. someone already reviewed it before, possibly someone else).
+  state.reviewerName = (await storageGet('reviewer:lastUsedName')) || '';
 
   $('#emptyState').style.display = 'none';
   $('#viewerWrap').style.display = 'flex';
@@ -1093,6 +1098,9 @@ async function ensurePdfPageRendered(pageNum){
 
 /* ---------------- selection -> toolbar ---------------- */
 let currentSelectionRange = null;
+let currentSelectionText = ''; // captured at selection time — safer than re-reading range.toString()
+                                 // later, since ANY later DOM change (a different page rendering,
+                                 // reordering, etc.) could affect what a stale Range reports.
 
 document.addEventListener('mouseup', (e)=>{
   if(e.target.closest('#selToolbar') || e.target.closest('.modal-backdrop')) return;
@@ -1107,6 +1115,7 @@ document.addEventListener('mouseup', (e)=>{
     if(!viewerEl.contains(container.nodeType === 1 ? container : container.parentElement)){ hideToolbar(); return; }
 
     currentSelectionRange = range.cloneRange();
+    currentSelectionText = text;
     showToolbar(range);
   }, 10);
 });
@@ -1178,7 +1187,7 @@ let pendingPdf = null;  // {page, rects}
 function openAudioModal(){
   if(!currentSelectionRange) return;
   preparePending();
-  $('#audioQuote').textContent = '“' + truncate(currentSelectionRange.toString().trim(), 160) + '”';
+  $('#audioQuote').textContent = '“' + truncate(currentSelectionText, 160) + '”';
   resetRecorder();
   $('#audioModalBackdrop').style.display = 'flex';
   hideToolbar();
@@ -1187,7 +1196,7 @@ function openAudioModal(){
 function truncate(s,n){ return s.length>n ? s.slice(0,n)+'…' : s; }
 
 function preparePending(){
-  const text = currentSelectionRange.toString().trim();
+  const text = currentSelectionText;
   const info = capturePdfSelectionRects(currentSelectionRange);
   pendingKind = 'pdf-rects'; pendingPdf = info ? {...info, text} : null;
   window.getSelection().removeAllRanges();
@@ -1332,7 +1341,7 @@ async function saveAudioComment(){
 function openTextModal(){
   if(!currentSelectionRange) return;
   preparePending();
-  $('#textQuote').textContent = '“' + truncate(currentSelectionRange.toString().trim(), 160) + '”';
+  $('#textQuote').textContent = '“' + truncate(currentSelectionText, 160) + '”';
   $('#textBody').value = '';
   $('#textModalBackdrop').style.display = 'flex';
   hideToolbar();
@@ -1528,7 +1537,7 @@ async function finalizeAnnotation(annotation){
   await saveMeta();
   renderSidebar(); // also renumbers badges
   pendingKind = null; pendingPdf = null;
-  currentSelectionRange = null;
+  currentSelectionRange = null; currentSelectionText = '';
 }
 
 /* ---------------- render PDF highlight overlay ---------------- */
@@ -1855,7 +1864,7 @@ async function loadExistingAnnotations(){
   const meta = await storageGet(`revdoc:${state.docHash}:meta`);
   if(!meta) return;
   $('#generalComment').value = meta.generalComment || '';
-  state.reviewerName = meta.reviewerName || '';
+  if(meta.reviewerName) state.reviewerName = meta.reviewerName; // only overrides if THIS document has its own name saved — otherwise keeps the general preference already set in handleFile()
 
   const ids = meta.annotationIds || [];
   for(const id of ids){
