@@ -137,6 +137,17 @@
     border-radius:2px; overflow:hidden;
   }
   .page-container canvas{ display:block; width:100%; height:auto; }
+  .page-num-label-live{
+    position:absolute; top:10px; left:10px; z-index:5; pointer-events:none;
+    background:rgba(21,34,56,.72); color:#fff; font-size:11px; font-weight:600;
+    padding:3px 9px; border-radius:6px; letter-spacing:.2px;
+  }
+  #pageIndicator{
+    position:sticky; top:12px; z-index:15; display:none;
+    width:fit-content; margin:0 auto 14px; text-align:center;
+    background:rgba(21,34,56,.85); color:#fff; font-size:12.5px; font-weight:600;
+    padding:6px 16px; border-radius:20px; box-shadow:0 4px 14px rgba(0,0,0,.18);
+  }
   .textLayer{
     position:absolute; inset:0; overflow:hidden; line-height:1;
     opacity:1; mix-blend-mode:normal; transform-origin:0 0; text-align:initial;
@@ -477,7 +488,7 @@
     </div>
 
     <div id="viewerWrap" style="display:none;">
-      <div id="viewer"></div>
+      <div id="viewer"><div id="pageIndicator" style="display:none;">Página 1</div></div>
     </div>
 
     <div id="sidebar" style="display:none;">
@@ -973,7 +984,8 @@ async function handleFile(file){
 
 /* ---------------- PDF rendering ---------------- */
 async function renderPDF(arrayBuffer){
-  const viewer = $('#viewer'); viewer.innerHTML = '';
+  const viewer = $('#viewer');
+  viewer.innerHTML = '<div id="pageIndicator" style="display:none;">Página 1</div>';
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
   state.pdfDoc = pdf;
@@ -995,8 +1007,15 @@ async function renderPDF(arrayBuffer){
     pageContainer.dataset.rendered = 'false';
     pageContainer.style.width = viewport.width + 'px';
     pageContainer.style.height = viewport.height + 'px';
+    const pageLabel = el('div','page-num-label-live');
+    pageLabel.textContent = `Página ${pageNum}`;
+    pageContainer.appendChild(pageLabel);
     viewer.appendChild(pageContainer);
   }
+
+  // Show and initialize the floating "current page" indicator now that we know the total.
+  $('#pageIndicator').textContent = `Página 1 de ${pdf.numPages}`;
+  $('#pageIndicator').style.display = 'block';
 
   // Pass 2: two observers, each watching every page, with deliberately different margins:
   //  - render zone (close): renders a page once it's about to be reached.
@@ -1026,7 +1045,31 @@ async function renderPDF(arrayBuffer){
   });
   state.pdfRenderObserver = renderObserver;
   state.pdfUnloadObserver = unloadObserver;
+
+  updateCurrentPageIndicator();
 }
+
+// Keeps the floating "Página X de Y" pill in sync with whatever page is actually at the top
+// of the visible reading area — checked against a reference line a little below the top of
+// the scroll container (roughly where the eye naturally lands), not the exact top edge, so it
+// switches to the next page right as it becomes the one actually being read.
+function updateCurrentPageIndicator(){
+  if(!state.pdfDoc) return;
+  const wrap = $('#viewerWrap');
+  const refY = wrap.getBoundingClientRect().top + 90;
+  const containers = document.querySelectorAll('.page-container');
+  let current = 1;
+  for(const c of containers){
+    if(c.getBoundingClientRect().top <= refY) current = parseInt(c.dataset.page, 10);
+    else break; // pages are in top-to-bottom order, safe to stop early
+  }
+  $('#pageIndicator').textContent = `Página ${current} de ${state.pdfDoc.numPages}`;
+}
+let pageIndicatorRAF = null;
+$('#viewerWrap').addEventListener('scroll', ()=>{
+  if(pageIndicatorRAF) return;
+  pageIndicatorRAF = requestAnimationFrame(()=>{ updateCurrentPageIndicator(); pageIndicatorRAF = null; });
+});
 
 async function renderPdfPage(pageNum){
   const pageContainer = document.querySelector(`.page-container[data-page="${pageNum}"]`);
@@ -2576,7 +2619,7 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Apreciable estudiante,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
