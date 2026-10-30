@@ -148,6 +148,18 @@
     background:rgba(21,34,56,.85); color:#fff; font-size:12.5px; font-weight:600;
     padding:6px 16px; border-radius:20px; box-shadow:0 4px 14px rgba(0,0,0,.18);
   }
+  /* page number that travels with the scrollbar thumb while scrolling or dragging it */
+  #scrollPageTip{
+    position:fixed; z-index:70; pointer-events:none; top:0; right:0;
+    background:rgba(21,34,56,.94); color:#fff; font-size:12.5px; font-weight:700; white-space:nowrap;
+    padding:6px 12px; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.22);
+    opacity:0; transform:translateY(-50%) translateX(6px); transition:opacity .15s ease, transform .15s ease;
+  }
+  #scrollPageTip::after{ /* little arrow pointing at the scrollbar */
+    content:''; position:absolute; right:-5px; top:50%; margin-top:-5px;
+    border:5px solid transparent; border-left-color:rgba(21,34,56,.94); border-right:0;
+  }
+  #scrollPageTip.show{ opacity:1; transform:translateY(-50%) translateX(0); }
   .textLayer{
     position:absolute; inset:0; overflow:hidden; line-height:1;
     opacity:1; mix-blend-mode:normal; transform-origin:0 0; text-align:initial;
@@ -317,6 +329,29 @@
 
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 
+  /* ⋮ storage & data panel */
+  .btn.icon-only{ padding:9px 8px; }
+  .btn.icon-only svg{ width:17px; height:17px; }
+  .storage-summary{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:0 0 4px; }
+  .storage-summary .big{ font-family:'Merriweather',serif; font-size:28px; font-weight:700; line-height:1.1; }
+  .storage-summary .sub{ font-size:12.5px; color:var(--muted); }
+  .storage-note{ font-size:12px; color:var(--muted); line-height:1.5; margin:0 0 12px; }
+  .storage-list{ max-height:230px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; }
+  .storage-row{ display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; }
+  .storage-row:last-child{ border-bottom:none; }
+  .storage-row .nm{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; }
+  .storage-row .meta{ color:var(--muted); font-size:12px; white-space:nowrap; }
+  .storage-row .del{ background:none; border:none; color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; padding:0; flex:none; }
+  .storage-row .del:hover{ color:var(--accent); }
+  .storage-empty{ padding:14px 12px; font-size:12.5px; color:var(--muted); }
+  .storage-danger{ border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-top:14px; background:#faf8f3; }
+  .storage-danger strong{ font-size:13px; }
+  .storage-danger p{ font-size:12.5px; color:var(--muted); line-height:1.5; margin:4px 0 10px; }
+  .storage-danger .btn{ font-size:12.5px; padding:7px 12px; }
+  #storageWipeYes{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .storage-wipe-actions{ display:flex; gap:8px; align-items:center; }
+  .storage-wipe-msg{ color:var(--accent) !important; font-weight:700; margin:8px 0 0 !important; }
+
   .comment-suggestions{
     display:none; position:absolute; left:0; right:0; top:100%; margin-top:2px; z-index:20;
     background:#fff; border:1px solid var(--line); border-radius:9px; box-shadow:var(--shadow);
@@ -381,6 +416,7 @@
   #toast{
     position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0;
     background:var(--ink); color:#fff; font-size:13px; padding:10px 18px; border-radius:8px; z-index:200;
+    max-width:min(620px, 92vw); text-align:center; line-height:1.45;
     transition:opacity .2s, transform .2s; pointer-events:none; box-shadow:0 10px 26px rgba(0,0,0,.25);
   }
   #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -425,6 +461,9 @@
         <span class="sub" id="reviewerSub">Revisor: M.Sc. Edson Vitelio Amézquita Cutz, Psicólogo</span>
       </div>
       <span class="save-status" id="saveStatus"><span class="dot"></span><span id="saveStatusText">Sin documento</span></span>
+      <button class="btn ghost icon-only" id="btnStorage" title="Almacenamiento y datos de este navegador" aria-label="Almacenamiento y datos">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>
+      </button>
     </div>
     <div class="header-row header-row-actions">
       <button class="btn ghost" id="btnNewDoc" style="display:none;">Nuevo documento</button>
@@ -631,6 +670,32 @@
 </div>
 
 <!-- Reviewer name modal -->
+<div class="modal-backdrop" id="storageModalBackdrop">
+  <div class="modal" style="width:540px;">
+    <h2>Almacenamiento y datos</h2>
+    <p style="font-size:12.5px;color:var(--muted);line-height:1.5;margin:4px 0 14px;">Mientras revisa, sus comentarios y audios se guardan solo en este navegador. Los PDF de los estudiantes no se guardan.</p>
+    <div class="storage-summary"><span class="big" id="storageTotal">…</span><span class="sub">ocupados por la plataforma en este navegador</span></div>
+    <p class="storage-note" id="storageNote">Calculando…</p>
+    <div class="storage-list" id="storageList"></div>
+    <div class="storage-danger">
+      <strong>Borrar los datos de la plataforma</strong>
+      <p>Libera todo el espacio que la plataforma usa en este navegador. Solo afecta a esta plataforma: no toca otros sitios ni sus archivos.</p>
+      <button class="btn" id="storageWipe">Borrar datos de este sitio…</button>
+      <div id="storageWipeBox" style="display:none;">
+        <p style="margin-top:0;"><strong style="color:var(--ink);">Se borrará de este navegador:</strong> todas las revisiones guardadas (los comentarios y audios que no haya exportado), los comentarios frecuentes, el nombre de revisor recordado, el logo y los ajustes. Si tiene un trabajo abierto, se cerrará. <strong style="color:var(--ink);">No se puede deshacer.</strong> No se borran los documentos originales ni lo que ya exportó.</p>
+        <div class="storage-wipe-actions">
+          <button class="btn" id="storageWipeYes">Sí, borrar todo</button>
+          <button class="btn ghost" id="storageWipeNo">Cancelar</button>
+        </div>
+        <p class="storage-wipe-msg" id="storageWipeMsg"></p>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="storageClose">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="reviewerModalBackdrop">
   <div class="modal">
     <h2>Nombre del revisor</h2>
@@ -648,6 +713,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="scrollPageTip"></div>
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -686,9 +752,9 @@ let state = {
 const $ = sel => document.querySelector(sel);
 const el = (tag, cls) => { const e = document.createElement(tag); if(cls) e.className = cls; return e; };
 
-function toast(msg){
+function toast(msg, ms){
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 2400);
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), ms || 2400);
 }
 function setSaveStatus(mode, text){
   const s = $('#saveStatus'); s.className = 'save-status ' + (mode||'');
@@ -721,7 +787,13 @@ function idbOpen(){
   _idbPromise = new Promise((resolve, reject)=>{
     const req = indexedDB.open(IDB_NAME, 1);
     req.onupgradeneeded = ()=>{ req.result.createObjectStore(IDB_STORE); };
-    req.onsuccess = ()=> resolve(req.result);
+    req.onsuccess = ()=>{
+      const db = req.result;
+      // if another tab of the platform (or "Borrar datos de este sitio") needs to delete or
+      // upgrade the database, step aside instead of blocking it; the next use reopens it
+      db.onversionchange = ()=>{ db.close(); _idbPromise = null; };
+      resolve(db);
+    };
     req.onerror = ()=> reject(req.error);
   });
   return _idbPromise;
@@ -784,11 +856,15 @@ async function storageList(prefix){
 }
 
 function hashFile(file){
-  // lightweight, deterministic id from name+size+lastModified
-  const raw = `${file.name}::${file.size}::${file.lastModified}`;
+  // Lightweight, deterministic id.
+  // - Local files: name + size + lastModified (the file keeps its own date on every upload).
+  // - Files opened from Drive: a File built from a downloaded blob has lastModified = "right now",
+  //   so using it would give a DIFFERENT id every time and the saved comments would never be found
+  //   again. Those files carry a stable `driveKey` instead (Drive file ID + content version).
+  const raw = file.driveKey || `${file.name}::${file.size}::${file.lastModified}`;
   let h = 0;
   for(let i=0;i<raw.length;i++){ h = (h*31 + raw.charCodeAt(i)) | 0; }
-  return 'd' + Math.abs(h);
+  return (file.driveKey ? 'g' : 'd') + Math.abs(h);
 }
 
 async function saveMeta(){
@@ -1064,11 +1140,56 @@ function updateCurrentPageIndicator(){
     else break; // pages are in top-to-bottom order, safe to stop early
   }
   $('#pageIndicator').textContent = `Página ${current} de ${state.pdfDoc.numPages}`;
+  lastIndicatorPage = current;
+  return current;
 }
-let pageIndicatorRAF = null;
+let pageIndicatorRAF = null, lastIndicatorPage = 1;
+
+/* Page number that follows the scrollbar thumb while scrolling (wheel, keys, or dragging the
+   bar itself), like the label in Google Docs — it appears as soon as the document moves and
+   fades out shortly after it stops. The thumb position is worked out from the scroll position,
+   since the browser doesn't expose where the native thumb is. */
+const scrollTip = $('#scrollPageTip');
+let scrollTipTimer = null, scrollbarDragging = false;
+function showScrollTip(page){
+  if(!state.pdfDoc) return;
+  const wrap = $('#viewerWrap');
+  const maxScroll = wrap.scrollHeight - wrap.clientHeight;
+  if(maxScroll <= 0) return;
+  const rect = wrap.getBoundingClientRect();
+  const track = wrap.clientHeight;
+  const thumbH = Math.max(track * track / wrap.scrollHeight, 24);
+  const thumbTop = (wrap.scrollTop / maxScroll) * (track - thumbH);
+  const sbw = wrap.offsetWidth - wrap.clientWidth;        // scrollbar thickness (0 if overlay)
+  scrollTip.textContent = `Página ${page} de ${state.pdfDoc.numPages}`;
+  scrollTip.style.top = (rect.top + wrap.clientTop + thumbTop + thumbH / 2) + 'px';
+  scrollTip.style.right = (document.documentElement.clientWidth - rect.right + sbw + 10) + 'px';
+  scrollTip.classList.add('show');
+  armScrollTipHide(1100);
+}
+function armScrollTipHide(ms){
+  clearTimeout(scrollTipTimer);
+  scrollTipTimer = setTimeout(()=>{ if(!scrollbarDragging) scrollTip.classList.remove('show'); }, ms);
+}
 $('#viewerWrap').addEventListener('scroll', ()=>{
   if(pageIndicatorRAF) return;
-  pageIndicatorRAF = requestAnimationFrame(()=>{ updateCurrentPageIndicator(); pageIndicatorRAF = null; });
+  pageIndicatorRAF = requestAnimationFrame(()=>{
+    const page = updateCurrentPageIndicator();
+    if(page) showScrollTip(page);
+    pageIndicatorRAF = null;
+  });
+});
+// While the bar is held down (even without moving) the label stays; it fades after release
+$('#viewerWrap').addEventListener('mousedown', (e)=>{
+  const wrap = $('#viewerWrap');
+  const sbw = wrap.offsetWidth - wrap.clientWidth;
+  if(sbw > 0 && e.clientX >= wrap.getBoundingClientRect().right - sbw){
+    scrollbarDragging = true;
+    showScrollTip(lastIndicatorPage);
+  }
+});
+window.addEventListener('mouseup', ()=>{
+  if(scrollbarDragging){ scrollbarDragging = false; armScrollTipHide(700); }
 });
 
 async function renderPdfPage(pageNum){
@@ -1932,7 +2053,7 @@ async function refreshSavedDocsRail(){
     const item = el('div','saved-doc-item');
     const left = el('div');
     const name = el('div','name'); name.textContent = info.fileName;
-    const meta = el('div','meta'); meta.textContent = `${info.count} comentario(s) · vuelva a subir este mismo archivo para continuar`;
+    const meta = el('div','meta'); meta.textContent = `${info.count} comentario(s) · vuelva a abrir este mismo archivo para continuar`;
     left.appendChild(name); left.appendChild(meta);
     const del = el('button'); del.textContent = 'Eliminar';
     del.style.cssText = 'background:none;border:none;color:var(--muted);font-size:11.5px;cursor:pointer;text-decoration:underline;padding:0;flex:none;';
@@ -1966,6 +2087,163 @@ $('#btnClearHistory').addEventListener('click', async ()=>{
   refreshSavedDocsRail();
 });
 refreshSavedDocsRail();
+
+/* ---------------- ⋮ storage & data panel ----------------
+   Shows how much room the platform uses in this browser (comments and audios — the students'
+   PDFs are never stored), lets the person delete a single saved review, or wipe everything the
+   platform keeps. It only touches this platform's own database: never other sites, and never
+   other data that happens to live under the same web address. */
+function formatBytes(n){
+  if(n < 1024) return Math.round(n) + ' B';
+  if(n < 1048576) return Math.round(n / 1024) + ' KB';
+  if(n < 1073741824) return (n / 1048576).toLocaleString('es-GT', { minimumFractionDigits:1, maximumFractionDigits:1 }) + ' MB';
+  return (n / 1073741824).toLocaleString('es-GT', { minimumFractionDigits:2, maximumFractionDigits:2 }) + ' GB';
+}
+// Audio is kept as a base64 data URL (text), and the browser stores that text almost as-is
+// (base64 of already-compressed audio barely shrinks), so its length is what it takes on disk —
+// the same figure the browser itself reports for this site.
+function approxBytes(v){
+  const one = x => typeof x === 'string' ? x.length
+                 : (x && typeof x === 'object') ? JSON.stringify(x).length : 8;
+  if(v && typeof v === 'object' && !Array.isArray(v)){ let n = 0; for(const k in v) n += one(v[k]); return n; }
+  return one(v);
+}
+async function forEachStoredRecord(cb){
+  if(HAS_CLAUDE_STORAGE){
+    for(const k of await storageList('')) cb(String(k), await storageGet(k));
+    return;
+  }
+  const db = await idbOpen();
+  await new Promise((resolve, reject)=>{
+    const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).openCursor();
+    req.onsuccess = ()=>{ const c = req.result; if(!c){ resolve(); return; } cb(String(c.key), c.value); c.continue(); };
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function measureStoredData(){
+  const perDoc = {}; let other = 0;
+  await forEachStoredRecord((key, value)=>{
+    const size = approxBytes(value) + key.length;
+    const m = /^revdoc:([^:]+):(meta|annot:)/.exec(key);
+    if(m){
+      const d = perDoc[m[1]] || (perDoc[m[1]] = { bytes:0, comments:0 });
+      d.bytes += size; if(m[2] !== 'meta') d.comments++;
+    } else { other += size; } // index, frequent comments, reviewer name, logo, settings
+  });
+  return { perDoc, other };
+}
+async function deleteStoredReview(hash){
+  for(const k of await storageList(`revdoc:${hash}:`)) await storageDelete(k);
+  const idx = (await storageGet('revdoc:index')) || {};
+  delete idx[hash];
+  await storageSet('revdoc:index', idx);
+}
+
+let storagePanelToken = 0, storagePanelData = null;
+async function openStoragePanel(){
+  const token = ++storagePanelToken;
+  $('#storageModalBackdrop').style.display = 'flex';
+  resetWipeBox();
+  $('#storageTotal').textContent = '…';
+  $('#storageNote').textContent = 'Calculando…';
+  $('#storageList').innerHTML = '';
+  try{
+    const [measured, idx] = await Promise.all([measureStoredData(), storageGet('revdoc:index')]);
+    let quota = null;
+    try{ if(navigator.storage && navigator.storage.estimate) quota = (await navigator.storage.estimate()).quota; }catch(e){}
+    if(token !== storagePanelToken) return; // closed (or reopened) while calculating
+    storagePanelData = { ...measured, idx: idx || {}, quota };
+    renderStoragePanel();
+  }catch(e){
+    console.error(e);
+    if(token === storagePanelToken) $('#storageNote').textContent = 'No se pudo calcular el espacio en este navegador.';
+  }
+}
+function renderStoragePanel(){
+  const d = storagePanelData; if(!d) return;
+  const hashes = Object.keys(d.perDoc).sort((a, b)=> d.perDoc[b].bytes - d.perDoc[a].bytes);
+  const total = hashes.reduce((s, h)=> s + d.perDoc[h].bytes, 0) + d.other;
+  $('#storageTotal').textContent = formatBytes(total);
+  let note = hashes.length ? `${hashes.length} revisión(es) guardada(s)` : 'No hay revisiones guardadas';
+  if(d.other > 0) note += ` · ajustes, logo y comentarios frecuentes: ${formatBytes(d.other)}`;
+  if(d.quota){
+    const pct = total / d.quota * 100;
+    note += ` · ${pct < 0.1 ? 'menos del 0.1 %' : pct.toLocaleString('es-GT', { maximumFractionDigits:1 }) + ' %'} del espacio que el navegador permite a este sitio`;
+  }
+  $('#storageNote').textContent = note;
+
+  const list = $('#storageList'); list.innerHTML = '';
+  if(!hashes.length){
+    const e = el('div', 'storage-empty'); e.textContent = 'Cuando guarde comentarios, las revisiones aparecerán aquí con su tamaño.';
+    list.appendChild(e); return;
+  }
+  hashes.forEach(h=>{
+    const info = d.idx[h];
+    const row = el('div', 'storage-row');
+    const nm = el('div', 'nm'); nm.textContent = info ? info.fileName : 'Revisión sin nombre'; nm.title = nm.textContent;
+    const meta = el('div', 'meta'); meta.textContent = `${d.perDoc[h].comments} comentario(s) · ${formatBytes(d.perDoc[h].bytes)}`;
+    row.appendChild(nm); row.appendChild(meta);
+    if(h === state.docHash){
+      const tag = el('span', 'meta'); tag.textContent = 'abierto ahora'; row.appendChild(tag);
+    } else {
+      const del = el('button', 'del'); del.textContent = 'Eliminar';
+      del.addEventListener('click', async ()=>{
+        if(!confirm(`¿Eliminar "${nm.textContent}" de este navegador? Se borran sus comentarios y audios guardados (el documento original no se modifica).`)) return;
+        await deleteStoredReview(h);
+        delete d.perDoc[h]; delete d.idx[h];
+        renderStoragePanel(); refreshSavedDocsRail();
+      });
+      row.appendChild(del);
+    }
+    list.appendChild(row);
+  });
+}
+function resetWipeBox(){
+  $('#storageWipe').style.display = '';
+  $('#storageWipeBox').style.display = 'none';
+  $('#storageWipeMsg').textContent = '';
+  $('#storageWipeYes').disabled = false;
+}
+// Deletes only this platform's own database (IDB_NAME) — not the whole web address's storage, which
+// other pages of the same GitHub account may share. Resolves 'ok' | 'blocked' | 'error'.
+async function wipeAllPlatformData(){
+  if(HAS_CLAUDE_STORAGE){
+    for(const k of await storageList('')) await storageDelete(k);
+    return 'ok';
+  }
+  try{ const db = _idbPromise ? await _idbPromise : null; if(db) db.close(); }catch(e){}
+  _idbPromise = null;
+  return new Promise((resolve)=>{
+    let waiting = null;
+    const r = indexedDB.deleteDatabase(IDB_NAME);
+    r.onsuccess = ()=>{ clearTimeout(waiting); resolve('ok'); };
+    r.onerror = ()=>{ clearTimeout(waiting); resolve('error'); };
+    r.onblocked = ()=>{ waiting = setTimeout(()=> resolve('blocked'), 4000); }; // another tab still holds it open
+  });
+}
+$('#btnStorage').addEventListener('click', openStoragePanel);
+function closeStoragePanel(){ storagePanelToken++; $('#storageModalBackdrop').style.display = 'none'; }
+$('#storageClose').addEventListener('click', closeStoragePanel);
+$('#storageModalBackdrop').addEventListener('mousedown', (e)=>{ if(e.target.id === 'storageModalBackdrop') closeStoragePanel(); });
+$('#storageWipe').addEventListener('click', ()=>{ $('#storageWipe').style.display = 'none'; $('#storageWipeBox').style.display = 'block'; });
+$('#storageWipeNo').addEventListener('click', resetWipeBox);
+$('#storageWipeYes').addEventListener('click', async ()=>{
+  $('#storageWipeYes').disabled = true;
+  // nothing may write the open document back while (or right after) its data is being erased
+  const prevHash = state.docHash;
+  clearTimeout(saveMetaTimer); saveMetaTimer = null; state.docHash = null;
+  const result = await wipeAllPlatformData();
+  if(result === 'ok'){
+    try{ sessionStorage.setItem('usac:wiped', '1'); }catch(e){}
+    location.reload(); // starts clean: default logo, no remembered name, empty history, no open document
+    return;
+  }
+  state.docHash = prevHash; // nothing was erased: the open document keeps working
+  $('#storageWipeYes').disabled = false;
+  $('#storageWipeMsg').textContent = result === 'blocked'
+    ? 'Hay otra pestaña de la plataforma abierta que impide borrar. Ciérrela e inténtelo de nuevo.'
+    : 'No se pudieron borrar los datos. Inténtelo de nuevo.';
+});
 
 /* ================================================================
    EXPORT — standalone, self-contained HTML the student can open
@@ -2369,6 +2647,7 @@ async function buildExportHTML(){
    (see the settings modal) since this app has no backend of its own.
    ================================================================ */
 let gapiLoaded = false, gisLoaded = false, tokenClient = null, driveAccessToken = null;
+let driveTokenExpiresAt = 0; // ms timestamp after which the Google session must be renewed
 
 function loadScript(src){
   return new Promise((resolve, reject)=>{
@@ -2415,9 +2694,12 @@ async function ensureGoogleAuth(){
   await ensureGoogleLoaded();
   await gapi.client.init({ apiKey: cfg.apiKey });
 
-  if(driveAccessToken) return cfg;
+  // A Google access token only lives about an hour. A long review session easily outlasts it,
+  // and after that Drive, Gmail and the Picker all reject it — so renew it before it expires
+  // instead of reusing a dead one for the rest of the session.
+  if(driveAccessToken && Date.now() < driveTokenExpiresAt) return cfg;
 
-  return requestGoogleToken(cfg, 'consent');
+  return requestGoogleToken(cfg, driveAccessToken ? '' : 'consent');
 }
 
 function requestGoogleToken(cfg, promptMode){
@@ -2428,6 +2710,9 @@ function requestGoogleToken(cfg, promptMode){
       callback: (resp)=>{
         if(resp && resp.access_token){
           driveAccessToken = resp.access_token;
+          // remember when it stops being usable, with a 10-minute margin so that a long
+          // export or upload can't outlive it halfway through
+          driveTokenExpiresAt = Date.now() + ((Number(resp.expires_in) || 3600) - 600) * 1000;
           updateDriveStatus(true);
           $('#btnSwitchAccount').style.display = 'inline-flex';
           resolve(cfg);
@@ -2436,9 +2721,59 @@ function requestGoogleToken(cfg, promptMode){
           resolve(null);
         }
       },
+      // without this, a blocked or closed Google window left the request hanging forever
+      error_callback: (err)=>{
+        toast(err && err.type === 'popup_closed'
+          ? 'Se cerró la ventana de Google antes de terminar. Inténtelo de nuevo.'
+          : 'No se pudo conectar con Google. Si el navegador bloqueó la ventana emergente, permítala e inténtelo de nuevo.', 7000);
+        resolve(null);
+      },
     });
     tokenClient.requestAccessToken({ prompt: promptMode });
   });
+}
+
+/* ---------------- Google API helpers: renew an expired session, explain errors ---------------- */
+// Runs a request with the current token. If Google answers 401 (token expired or revoked
+// midway) the session is renewed once and the request is repeated before giving up.
+async function googleFetch(makeRequest){
+  let res = await makeRequest();
+  if(res.status === 401){
+    driveTokenExpiresAt = 0; // marks it as expired (keeps the token so the renewal is silent, no consent screen)
+    const cfg = await ensureGoogleAuth();
+    if(cfg) res = await makeRequest();
+  }
+  return res;
+}
+// Turns a failed Google response into an Error carrying Google's own explanation
+async function googleError(res, service){
+  let reason = '', detail = '';
+  try{
+    if((res.headers.get('content-type') || '').includes('json')){
+      const e = (await res.json()).error || {};
+      detail = e.message || '';
+      reason = (e.errors && e.errors[0] && e.errors[0].reason) || e.status || '';
+    } else {
+      detail = (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+    }
+  }catch(e){ /* body unreadable — status alone still helps */ }
+  const err = new Error(`${service} respondió ${res.status}${reason ? ' (' + reason + ')' : ''}${detail ? ': ' + detail : ''}`);
+  err.status = res.status; err.reason = String(reason); err.service = service;
+  return err;
+}
+// Plain-Spanish explanation for the person using the platform (the code stays in brackets
+// so it can be reported if the problem persists)
+function googleErrorMessage(err, accion){
+  const s = err && err.status, r = (err && err.reason) || '';
+  const code = s ? ` [error ${s}${r ? ' · ' + r : ''}]` : '';
+  if(s === 401) return `La sesión de Google venció. Presione el botón de nuevo para volver a iniciar sesión.${code}`;
+  if(s === 413) return `El archivo es demasiado grande para ${accion}. Use "Guardar en Drive" y comparta el enlace.${code}`;
+  if(s === 403 && /ratelimit/i.test(r)) return `Google limitó temporalmente las solicitudes. Espere un minuto e inténtelo de nuevo.${code}`;
+  if(s === 403 && /storagequota/i.test(r)) return `Su Google Drive no tiene espacio disponible.${code}`;
+  if(s === 403 && /insufficient|scope/i.test(r)) return `Falta un permiso de Google. Use "Cambiar cuenta" y acepte todos los permisos al iniciar sesión.${code}`;
+  if(s === 403) return `Google rechazó la operación (permisos o cuenta). Pruebe con "Cambiar cuenta" e inténtelo de nuevo.${code}`;
+  if(!s) return `No se pudo ${accion}${err && err.message ? ' (' + String(err.message).slice(0, 120) + ')' : ''}. Revise su conexión a internet e inténtelo de nuevo.`;
+  return `No se pudo ${accion}.${code}`;
 }
 
 async function switchGoogleAccount(){
@@ -2493,12 +2828,12 @@ async function uploadBlobToDrive(blob, filename, folderId){
   form.append('file', blob);
   // webContentLink (direct download) instead of webViewLink (Drive's in-browser preview,
   // which strips JavaScript and would show the export broken, not interactive)
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink', {
+  const res = await googleFetch(()=> fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,webContentLink', {
     method:'POST',
     headers: { Authorization: 'Bearer ' + driveAccessToken },
     body: form,
-  });
-  if(!res.ok){ throw new Error('Drive respondió ' + res.status); }
+  }));
+  if(!res.ok){ throw await googleError(res, 'Drive'); }
   return res.json();
 }
 
@@ -2527,6 +2862,25 @@ function pickDriveFile(cfg){
     }catch(e){ console.error(e); resolve(null); }
   });
 }
+/* Stable identity for a Drive file: its Drive ID + something that only changes when the CONTENT
+   changes (md5 for real files, modified date for native Google Docs). Same file => same key on
+   every open, so its saved comments are found again after closing and reopening the browser;
+   if the student replaces the file with a new version, the key changes and the old comments
+   are not applied to different content. */
+async function driveFileKey(doc){
+  let version = '';
+  try{
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}?fields=md5Checksum,modifiedTime`, {
+      headers: { Authorization: 'Bearer ' + driveAccessToken }
+    });
+    if(r.ok){
+      const m = await r.json();
+      version = m.md5Checksum || m.modifiedTime || '';
+    }
+  }catch(e){ console.warn('No se pudo leer los datos de versión del archivo en Drive', e); }
+  if(!version) version = String(doc.lastEditedUtc || doc.sizeBytes || '');
+  return `drive::${doc.id}::${version}`;
+}
 async function downloadDriveFile(doc){
   let url, mimeType, fileName = doc.name;
   if(doc.mimeType === 'application/vnd.google-apps.document'){
@@ -2541,7 +2895,9 @@ async function downloadDriveFile(doc){
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
   if(!res.ok) throw new Error('Drive respondió ' + res.status);
   const blob = await res.blob();
-  return new File([blob], fileName, { type: mimeType });
+  const file = new File([blob], fileName, { type: mimeType });
+  file.driveKey = await driveFileKey(doc);
+  return file;
 }
 
 $('#btnOpenDrive').addEventListener('click', openFromDrive);
@@ -2577,7 +2933,7 @@ async function driveExport(){
     if(link) window.open(link, '_blank');
   }catch(err){
     console.error(err);
-    toast('No se pudo subir a Drive. Revise la configuración e inténtelo de nuevo.');
+    toast(googleErrorMessage(err, 'guardar en Drive'), 10000);
   }
 }
 
@@ -2619,22 +2975,43 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Apreciable estudiante,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
 
-function toBase64Url(str){
-  return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+/* ---- MIME building. The review can weigh several MB, so everything is handled as binary
+   Blobs and sent as the raw message — no giant strings, and no second base64 layer on top of
+   the attachment's own (that doubling is what made messages above ~5-10 MB fail). ---- */
+function utf8ToBase64(str){
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for(let i = 0; i < bytes.length; i += 0x8000){ bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); }
+  return btoa(bin);
 }
 function encodeSubject(subject){
-  return '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subject))) + '?=';
+  return '=?UTF-8?B?' + utf8ToBase64(subject) + '?=';
 }
-function buildMimeMessage({ to, subject, bodyText, filename, attachmentText }){
+function wrapBase64(b64){ // MIME lines must stay short (76 characters)
+  const lines = [];
+  for(let i = 0; i < b64.length; i += 76) lines.push(b64.slice(i, i + 76));
+  return lines.join('\r\n');
+}
+function blobToBase64(blob){ // native encoder: fast even for tens of MB
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>{ const d = r.result; resolve(d.slice(d.indexOf(',') + 1)); };
+    r.onerror = ()=> reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function buildMimeBlob({ to, subject, bodyText, filename, attachmentBlob }){
   const boundary = 'usacRevision' + Date.now();
-  const attachmentB64 = btoa(unescape(encodeURIComponent(attachmentText)));
-  const wrapped = attachmentB64.match(/.{1,76}/g).join('\r\n');
-  const parts = [
+  // plain ASCII name for old mail clients + the exact UTF-8 name (accents, ñ) per RFC 2231
+  const asciiName = filename.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._ -]/g, '_');
+  const utf8Name = "UTF-8''" + encodeURIComponent(filename).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  const attachmentB64 = wrapBase64(await blobToBase64(attachmentBlob));
+  const head = [
     `To: ${to}`,
     `Subject: ${encodeSubject(subject)}`,
     'MIME-Version: 1.0',
@@ -2642,19 +3019,18 @@ function buildMimeMessage({ to, subject, bodyText, filename, attachmentText }){
     '',
     `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
     '',
-    bodyText,
+    wrapBase64(utf8ToBase64(bodyText)),
     '',
     `--${boundary}`,
-    `Content-Type: text/html; name="${filename}"`,
+    `Content-Type: text/html; name="${asciiName}"`,
     'Content-Transfer-Encoding: base64',
-    `Content-Disposition: attachment; filename="${filename}"`,
+    `Content-Disposition: attachment; filename="${asciiName}"; filename*=${utf8Name}`,
     '',
-    wrapped,
     '',
-    `--${boundary}--`,
-  ];
-  return parts.join('\r\n');
+  ].join('\r\n');
+  return new Blob([head, attachmentB64, `\r\n--${boundary}--\r\n`], { type: 'message/rfc822' });
 }
 
 $('#emailSend').addEventListener('click', sendReviewEmail);
@@ -2664,35 +3040,57 @@ async function sendReviewEmail(){
   const cfg = await ensureGoogleAuth();
   if(!cfg) return;
 
-  toast('Generando y enviando por correo…');
+  toast('Generando y enviando por correo…', 8000);
   try{
     const html = await buildExportHTML();
-    if(html.length > 20*1024*1024){
-      toast('El archivo es demasiado grande para enviarlo por correo (límite ~20MB). Usa Drive en su lugar.');
+    const attachmentBlob = new Blob([html], { type: 'text/html' });
+    // Gmail caps a whole message at 25 MB, and base64 makes the attachment about 37% bigger
+    const maxAttachment = Math.floor(24 * 1048576 / 1.37);
+    if(attachmentBlob.size > maxAttachment){
+      toast(`La revisión pesa ${(attachmentBlob.size / 1048576).toFixed(1)} MB y Gmail solo permite enviar adjuntos de hasta unos ${Math.floor(maxAttachment / 1048576)} MB. Use "Guardar en Drive" y comparta el enlace con el estudiante.`, 12000);
       return;
     }
     const base = state.fileName.replace(/\.pdf$/i,'');
-    const filename = `${base}_revisado.html`;
-    const mime = buildMimeMessage({
+    const mimeBlob = await buildMimeBlob({
       to,
       subject: $('#emailSubject').value.trim() || `Revisión — ${state.fileName}`,
       bodyText: $('#emailBody').value,
-      filename,
-      attachmentText: html,
+      filename: `${base}_revisado.html`,
+      attachmentBlob,
     });
-    const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    // Upload endpoint: takes the raw message as-is (documented limit well above the ~5 MB of
+    // the plain JSON endpoint, which needs the message base64-encoded a second time).
+    let res = await googleFetch(()=> fetch('https://www.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: toBase64Url(mime) }),
-    });
-    if(!res.ok){ throw new Error('Gmail respondió ' + res.status); }
+      headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'message/rfc822' },
+      body: mimeBlob,
+    }));
+    // Safety net for small messages only: if that endpoint rejects the request shape, fall back
+    // to the plain JSON endpoint (fine below a few MB).
+    if(!res.ok && [400, 404, 415].includes(res.status) && mimeBlob.size <= 3 * 1048576){
+      const raw = (await blobToBase64(mimeBlob)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      res = await googleFetch(()=> fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw }),
+      }));
+    }
+    if(!res.ok){ throw await googleError(res, 'Gmail'); }
     toast('Correo enviado ✓');
     $('#emailModalBackdrop').style.display = 'none';
   }catch(err){
     console.error(err);
-    toast('No se pudo enviar el correo. Revise la configuración e inténtelo de nuevo.');
+    toast(googleErrorMessage(err, 'enviar el correo'), 10000);
   }
 }
+
+// after "Borrar datos de este sitio" the page reloads; confirm it once it is back
+try{
+  if(sessionStorage.getItem('usac:wiped')){
+    sessionStorage.removeItem('usac:wiped');
+    toast('Datos borrados. La plataforma quedó como nueva en este navegador.', 5000);
+  }
+}catch(e){}
 </script>
 </body>
 </html>
