@@ -2975,14 +2975,14 @@ async function openEmailModal(){
   const reviewerName = getReviewerName();
   $('#emailTo').value = '';
   $('#emailSubject').value = `Revisión de su trabajo — ${state.fileName}`;
-  $('#emailBody').value = `Hola,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
+  $('#emailBody').value = `Apreciable estudiante,\n\nAdjunto la revisión de su trabajo con comentarios en audio y por escrito. Para verla correctamente, descargue el archivo adjunto (puede hacerlo tanto en computadora como en teléfono celular) y ábralo ya descargado con su navegador — no funciona si lo abre en vista previa dentro del correo. Cada resaltado tiene un comentario asociado, y el resumen al final indica cuántos son de audio, texto y ortografía/redacción.\n\nSaludos,\n${reviewerName}\nUniversidad de San Carlos de Guatemala`;
   $('#emailModalBackdrop').style.display = 'flex';
 }
 $('#emailCancel').addEventListener('click', ()=> $('#emailModalBackdrop').style.display='none');
 
-/* ---- MIME building. The review can weigh several MB, so everything is handled as binary
-   Blobs and sent as the raw message — no giant strings, and no second base64 layer on top of
-   the attachment's own (that doubling is what made messages above ~5-10 MB fail). ---- */
+/* ---- MIME building. The review can weigh several MB, so the message is sent as the raw
+   message (the attachment's base64 only, with no second base64 layer on top — that doubling is
+   what made messages above ~5-10 MB fail through the plain JSON route). ---- */
 function utf8ToBase64(str){
   const bytes = new TextEncoder().encode(str);
   let bin = '';
@@ -3005,7 +3005,8 @@ function blobToBase64(blob){ // native encoder: fast even for tens of MB
     r.readAsDataURL(blob);
   });
 }
-async function buildMimeBlob({ to, subject, bodyText, filename, attachmentBlob }){
+// Returns the whole message as one plain-ASCII string (every part is base64 or encoded-words)
+async function buildMimeMessage({ to, subject, bodyText, filename, attachmentBlob }){
   const boundary = 'usacRevision' + Date.now();
   // plain ASCII name for old mail clients + the exact UTF-8 name (accents, ñ) per RFC 2231
   const asciiName = filename.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._ -]/g, '_');
@@ -3030,7 +3031,45 @@ async function buildMimeBlob({ to, subject, bodyText, filename, attachmentBlob }
     '',
     '',
   ].join('\r\n');
-  return new Blob([head, attachmentB64, `\r\n--${boundary}--\r\n`], { type: 'message/rfc822' });
+  return head + attachmentB64 + `\r\n--${boundary}--\r\n`;
+}
+
+/* Sends a raw message through Google's own JavaScript library (gapi).
+   Gmail's "upload" address — the only one that takes big messages — does not answer to plain
+   fetch() calls from a web page: the browser blocks it (CORS) and shows "Failed to fetch", whatever
+   the size. gapi reaches it through Google's own relay, so it works. Checked from the browser. */
+async function gmailUploadSend(rawMime){
+  const attempt = async ()=>{
+    gapi.client.setToken({ access_token: driveAccessToken });
+    gapi.client.setApiKey(''); // the Gmail API takes the signed-in token only, not an API key
+    try{
+      await gapi.client.request({
+        path: 'https://www.googleapis.com/upload/gmail/v1/users/me/messages/send',
+        method: 'POST',
+        params: { uploadType: 'media' },
+        headers: { 'Content-Type': 'message/rfc822' },
+        body: rawMime,
+      });
+      return null;
+    }catch(e){
+      // Google's answer arrives as {status, result:{error}}; with no answer at all it is an Error
+      const er = (e && e.result && e.result.error) || {};
+      const status = Number(e && e.status) || Number(er.code) || 0;
+      const reason = String((er.errors && er.errors[0] && er.errors[0].reason) || er.status || '');
+      const detail = er.message || (e && e.message) || (typeof e === 'string' ? e : '') || 'sin respuesta';
+      const err = new Error(status ? `Gmail respondió ${status}${reason ? ' (' + reason + ')' : ''}: ${detail}` : String(detail));
+      err.status = status; err.reason = reason; err.service = 'Gmail';
+      return err;
+    }
+  };
+  let err = await attempt();
+  if(err && err.status === 401){ // session expired midway: renew it silently and try once more
+    driveTokenExpiresAt = 0;
+    const cfg = await ensureGoogleAuth();
+    if(cfg) err = await attempt();
+  }
+  try{ gapi.client.setToken(null); }catch(e){}
+  if(err) throw err;
 }
 
 $('#emailSend').addEventListener('click', sendReviewEmail);
@@ -3051,31 +3090,33 @@ async function sendReviewEmail(){
       return;
     }
     const base = state.fileName.replace(/\.pdf$/i,'');
-    const mimeBlob = await buildMimeBlob({
+    const mime = await buildMimeMessage({
       to,
       subject: $('#emailSubject').value.trim() || `Revisión — ${state.fileName}`,
       bodyText: $('#emailBody').value,
       filename: `${base}_revisado.html`,
       attachmentBlob,
     });
-    // Upload endpoint: takes the raw message as-is (documented limit well above the ~5 MB of
-    // the plain JSON endpoint, which needs the message base64-encoded a second time).
-    let res = await googleFetch(()=> fetch('https://www.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'message/rfc822' },
-      body: mimeBlob,
-    }));
-    // Safety net for small messages only: if that endpoint rejects the request shape, fall back
-    // to the plain JSON endpoint (fine below a few MB).
-    if(!res.ok && [400, 404, 415].includes(res.status) && mimeBlob.size <= 3 * 1048576){
-      const raw = (await blobToBase64(mimeBlob)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      res = await googleFetch(()=> fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    if(mime.length > 3 * 1048576){
+      toast(`Enviando correo de ${(mime.length / 1048576).toFixed(1)} MB. Puede tardar un momento; no cierre la página.`, 120000);
+    }
+    try{
+      // Upload route: takes the raw message as-is, so it holds far bigger messages than the plain
+      // JSON route (which needs the message base64-encoded a second time).
+      await gmailUploadSend(mime);
+    }catch(err){
+      // Safety net for small messages only: if that route fails, the plain JSON route (fine below
+      // a few MB, and reachable with fetch) gets a try.
+      if(mime.length > 3 * 1048576 || ![0, 400, 404, 415].includes(err.status)) throw err;
+      console.warn('Gmail upload route failed, trying the JSON route:', err);
+      const raw = utf8ToBase64(mime).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const res = await googleFetch(()=> fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw }),
       }));
+      if(!res.ok){ throw await googleError(res, 'Gmail'); }
     }
-    if(!res.ok){ throw await googleError(res, 'Gmail'); }
     toast('Correo enviado ✓');
     $('#emailModalBackdrop').style.display = 'none';
   }catch(err){
