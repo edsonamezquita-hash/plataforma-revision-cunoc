@@ -1465,6 +1465,26 @@ function blobToBase64(blob){
   });
 }
 
+/* Voice comments are stored as a data URL ("data:audio/webm;…;base64,…"). Recordings made with the
+   version that had the name clash above were stored as bare base64, which no browser can play.
+   The sound itself is intact, so this puts the missing label back (it recognises the format from
+   the first bytes). Returns true when it changed something. */
+function audioMimeFromBase64(b64){
+  let h = ''; try{ h = atob(b64.slice(0, 24)); }catch(e){}
+  if(h.startsWith('\x1aE\xdf\xa3')) return 'audio/webm;codecs=opus';
+  if(h.startsWith('OggS')) return 'audio/ogg;codecs=opus';
+  if(h.slice(4, 8) === 'ftyp') return 'audio/mp4';
+  if(h.startsWith('RIFF')) return 'audio/wav';
+  return 'audio/webm';
+}
+function repairAudioContent(a){
+  if(a && a.type === 'audio' && typeof a.content === 'string' && a.content && !/^(data|blob):/.test(a.content)){
+    a.content = `data:${audioMimeFromBase64(a.content)};base64,${a.content}`;
+    return true;
+  }
+  return false;
+}
+
 $('#audioCancel').addEventListener('click', ()=>{ closeAudioModal(true); });
 function closeAudioModal(discard){
   $('#audioModalBackdrop').style.display = 'none';
@@ -2031,13 +2051,15 @@ async function loadExistingAnnotations(){
   if(meta.reviewerName) state.reviewerName = meta.reviewerName; // only overrides if THIS document has its own name saved — otherwise keeps the general preference already set in handleFile()
 
   const ids = meta.annotationIds || [];
+  let repaired = 0;
   for(const id of ids){
     const a = await storageGet(`revdoc:${state.docHash}:annot:${id}`);
     if(!a) continue;
+    if(repairAudioContent(a)){ repaired++; await saveAnnotationToStorage(a); } // recover audios saved without their label
     state.annotations.push(a);
     renderPdfHighlight(a);
   }
-  if(ids.length) toast(`Se restauraron ${ids.length} comentario(s) guardados de este documento`);
+  if(ids.length) toast(`Se restauraron ${ids.length} comentario(s) guardados de este documento` + (repaired ? ` (${repaired} audio(s) recuperados)` : ''), repaired ? 5000 : undefined);
 }
 
 $('#generalComment').addEventListener('input', scheduleSaveMeta);
@@ -2274,6 +2296,7 @@ async function buildExportHTML(){
   let sidebarHTML = '';
 
   function commentCardHTML(a){
+    repairAudioContent(a); // last line of defence: never export an audio without its label
     const cat = a.type === 'quick' ? QUICK_CAT : (a.type === 'ai' ? AI_CAT : catInfo(a.category));
     const body = a.type==='audio'
       ? `<audio controls controlsList="nodownload" oncontextmenu="return false" src="${a.content}"></audio>`
@@ -2997,7 +3020,10 @@ function wrapBase64(b64){ // MIME lines must stay short (76 characters)
   for(let i = 0; i < b64.length; i += 76) lines.push(b64.slice(i, i + 76));
   return lines.join('\r\n');
 }
-function blobToBase64(blob){ // native encoder: fast even for tens of MB
+// NOTE: named differently on purpose. A second function called blobToBase64 silently replaced the
+// one that voice comments rely on (which keeps the "data:audio/…;base64," label) and left new
+// recordings without it, so they could not be played back.
+function blobToRawBase64(blob){ // native encoder: fast even for tens of MB; returns the bare base64
   return new Promise((resolve, reject)=>{
     const r = new FileReader();
     r.onload = ()=>{ const d = r.result; resolve(d.slice(d.indexOf(',') + 1)); };
@@ -3011,7 +3037,7 @@ async function buildMimeMessage({ to, subject, bodyText, filename, attachmentBlo
   // plain ASCII name for old mail clients + the exact UTF-8 name (accents, ñ) per RFC 2231
   const asciiName = filename.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._ -]/g, '_');
   const utf8Name = "UTF-8''" + encodeURIComponent(filename).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
-  const attachmentB64 = wrapBase64(await blobToBase64(attachmentBlob));
+  const attachmentB64 = wrapBase64(await blobToRawBase64(attachmentBlob));
   const head = [
     `To: ${to}`,
     `Subject: ${encodeSubject(subject)}`,
